@@ -753,44 +753,47 @@ void F4EEScaleform_EquipItems::Invoke(Args * args)
 	}
 }
 
-void F4EEScaleform_GetSkinOverrides::Invoke(Args * args)
-{
-	CharacterCreation * characterCreation = g_characterCreation[*g_characterIndex];
-	if(characterCreation) {
-		Actor * actor = characterCreation->actor;
+void F4EEScaleform_GetSkinOverrides::Invoke(Args* args) {
+	CharacterCreation* characterCreation = g_characterCreation[*g_characterIndex];
+	if (!characterCreation)
+		return;
 
-		TESNPC * npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
-		if(npc) {
-			UInt8 gender = CALL_MEMBER_FN(npc, GetSex)();
+	Actor* actor = characterCreation->actor;
 
-			args->movie->movieRoot->CreateArray(args->result);
+	TESNPC* npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	if (!npc)
+		return;
 
-			std::vector<std::pair<F4EEFixedString, SkinTemplatePtr>> skins;
+	UInt8 gender = CALL_MEMBER_FN(npc, GetSex)();
 
-			g_skinInterface.ForEachSkinTemplate([&](const F4EEFixedString & name, const SkinTemplatePtr & pTemplate) {
-				if(pTemplate->gender == 2 || pTemplate->gender == gender)
-				{
-					skins.push_back(std::make_pair(name, pTemplate));
-				}
-			});
+	args->movie->movieRoot->CreateArray(args->result);
 
-			std::sort(skins.begin(), skins.end(), [&](const std::pair<F4EEFixedString, SkinTemplatePtr> & a, const std::pair<F4EEFixedString, SkinTemplatePtr> & b)
-			{
-				if(a.second->sort == b.second->sort)
-					return std::string(a.second->name.c_str()) < std::string(b.second->name.c_str());
-				else
-					return a.second->sort < b.second->sort;
-			});
+	std::vector<std::pair<F4EEFixedString, SkinTemplatePtr>> skins;
 
-			for(auto & skin : skins)
-			{
-				GFxValue templateEntry;
-				args->movie->movieRoot->CreateObject(&templateEntry);
-				RegisterString(&templateEntry, args->movie->movieRoot, "id", skin.first.c_str());
-				RegisterString(&templateEntry, args->movie->movieRoot, "name", skin.second->name.c_str());
-				args->result->PushBack(&templateEntry);
-			}
-		}
+	g_skinInterface.ForEachSkinTemplate([&](const F4EEFixedString& name, const SkinTemplatePtr& pTemplate) {
+		if (pTemplate->gender != 2 && pTemplate->gender != gender)
+			return;
+
+		auto skin = pTemplate->GetSkinArmor();
+		if (skin && skin->raceForm.race && npc->race.race && skin->raceForm.race != npc->race.race)
+			return;
+
+		skins.push_back(std::make_pair(name, pTemplate));
+		});
+
+	std::sort(skins.begin(), skins.end(), [&](const std::pair<F4EEFixedString, SkinTemplatePtr>& a, const std::pair<F4EEFixedString, SkinTemplatePtr>& b) {
+		if (a.second->sort == b.second->sort)
+			return std::string(a.second->name.c_str()) < std::string(b.second->name.c_str());
+		else
+			return a.second->sort < b.second->sort;
+		});
+
+	for (auto& skin : skins) {
+		GFxValue templateEntry;
+		args->movie->movieRoot->CreateObject(&templateEntry);
+		RegisterString(&templateEntry, args->movie->movieRoot, "id", skin.first.c_str());
+		RegisterString(&templateEntry, args->movie->movieRoot, "name", skin.second->name.c_str());
+		args->result->PushBack(&templateEntry);
 	}
 }
 

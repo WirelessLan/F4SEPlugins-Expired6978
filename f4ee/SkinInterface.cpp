@@ -93,7 +93,7 @@ void F4EESkinUpdate::Run() {
 		}
 	}
 
-	// We changed base face textures, clear our morph groups and do a facegen update
+	// We changed base face textures, do a facegen update
 	bool doFaceUpdate = m_doFace && npc->headData && npc->headData->faceTextures != faceTexture;
 	if (doFaceUpdate) {
 		npc->headData->faceTextures = faceTexture;

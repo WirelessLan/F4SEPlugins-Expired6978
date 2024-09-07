@@ -26,30 +26,29 @@ F4EESkinUpdate::F4EESkinUpdate(TESForm * form, bool doFace)
 	m_doFace = doFace;
 }
 
-void F4EESkinUpdate::Run()
-{
-	TESForm * form = LookupFormByID(m_formId);
-	if(!form)
+void F4EESkinUpdate::Run() {
+	TESForm* form = LookupFormByID(m_formId);
+	if (!form)
 		return;
 
-	Actor * actor = DYNAMIC_CAST(form, TESForm, Actor);
-	if(!actor)
+	Actor* actor = DYNAMIC_CAST(form, TESForm, Actor);
+	if (!actor)
 		return;
 
-	TESNPC * npc =  DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
-	if(!npc)
+	TESNPC* npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
+	if (!npc)
 		return;
 
 	UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
 	bool isFemale = gender == 1 ? true : false;
 
-	BGSTextureSet * faceTexture = nullptr;
-	TESObjectARMO * skinArmor = nullptr;
-	BGSHeadPart * headRearPart = nullptr;
-	BGSHeadPart * headPart = nullptr;
+	BGSTextureSet* faceTexture = nullptr;
+	TESObjectARMO* skinArmor = nullptr;
+	BGSHeadPart* headRearPart = nullptr;
+	BGSHeadPart* headPart = nullptr;
 
 	SkinTemplatePtr pTemplate = g_skinInterface.GetSkinTemplate(actor);
-	if(pTemplate) {
+	if (pTemplate) {
 		faceTexture = pTemplate->GetTextureSet(isFemale);
 		skinArmor = pTemplate->GetSkinArmor();
 		headPart = pTemplate->GetHead(isFemale);
@@ -57,37 +56,37 @@ void F4EESkinUpdate::Run()
 	}
 
 	// We have a new texture to assign, create head data if we don't have one
-	if(m_doFace && faceTexture) {
-		if(!npc->headData)
+	if (m_doFace && faceTexture) {
+		if (!npc->headData)
 			npc->headData = new TESNPC::HeadData();
 	}
 
 	bool faceBackupExists = false;
-	if(m_doFace) {
-		if(!faceTexture) // Couldn't find an override, choose the backup
+	if (m_doFace) {
+		if (!faceTexture) // Couldn't find an override, choose the backup
 			faceTexture = g_skinInterface.GetBackupFace(actor, npc, isFemale, faceBackupExists);
 		//if(!faceTexture && !faceBackupExists) // There was no backup, lets take what the NPC has
 		//	faceTexture = npc->headData ? npc->headData->faceTextures : nullptr;
 	}
 
 	bool skinBackupExists = false;
-	if(!skinArmor) // Couldn't find an override, choose the backup
+	if (!skinArmor) // Couldn't find an override, choose the backup
 		skinArmor = g_skinInterface.GetBackupSkin(npc, skinBackupExists);
-	if(!skinArmor && !skinBackupExists) // There was no backup, lets take what the NPC has
+	if (!skinArmor && !skinBackupExists) // There was no backup, lets take what the NPC has
 		skinArmor = npc->skinForm.skin;
 
 	bool doHeadUpdate = false;
-	if(m_doFace) {
+	if (m_doFace) {
 		// Change the face part
-		BGSHeadPart * pCurrentHead = npc->GetHeadPartByType(BGSHeadPart::kTypeFace);
-		if(headPart && pCurrentHead && headPart != pCurrentHead) {
+		BGSHeadPart* pCurrentHead = npc->GetHeadPartByType(BGSHeadPart::kTypeFace);
+		if (headPart && pCurrentHead && headPart != pCurrentHead) {
 			npc->ChangeHeadPart(headPart, false, false);
 			doHeadUpdate = true;
 			npc->MarkChanged(0x800); // Save FaceData
 		}
 		// We changed the head rear HeadPart, we need to invoke an update
-		BGSHeadPart * pCurrentHeadRear = npc->GetHeadPartByType(BGSHeadPart::kTypeHeadRear);
-		if(headRearPart && pCurrentHeadRear && headRearPart != pCurrentHeadRear) {
+		BGSHeadPart* pCurrentHeadRear = npc->GetHeadPartByType(BGSHeadPart::kTypeHeadRear);
+		if (headRearPart && pCurrentHeadRear && headRearPart != pCurrentHeadRear) {
 			npc->ChangeHeadPart(headRearPart, false, false);
 			doHeadUpdate = true;
 			npc->MarkChanged(0x800); // Save FaceData
@@ -96,11 +95,8 @@ void F4EESkinUpdate::Run()
 
 	// We changed base face textures, clear our morph groups and do a facegen update
 	bool doFaceUpdate = m_doFace && npc->headData && npc->headData->faceTextures != faceTexture;
-	if(doFaceUpdate) {
+	if (doFaceUpdate) {
 		npc->headData->faceTextures = faceTexture;
-		auto morphData = npc->morphSetData;
-		if(morphData)
-			morphData->Clear();
 		npc->MarkChanged(0x800);
 	}
 
@@ -108,19 +104,19 @@ void F4EESkinUpdate::Run()
 
 	// We changed the skin, assign the new skin and perform an update
 	bool doSkinUpdate = npc->skinForm.skin != skinArmor;
-	if(doSkinUpdate) {
+	if (doSkinUpdate) {
 		npc->skinForm.skin = skinArmor;
 	}
 
 	// Only regenerating skin, do a less expensive update
-	if(doSkinUpdate && !doHeadUpdate) {
+	if (doSkinUpdate && !doHeadUpdate) {
 		auto middleProcess = actor->middleProcess;
-		if(middleProcess) 
+		if (middleProcess)
 			CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
 	}
 
 	// Regenerate the face
-	if(doHeadUpdate)
+	if (doHeadUpdate)
 		CALL_MEMBER_FN(actor, QueueUpdate)(false, 0, true, 0);
 }
 

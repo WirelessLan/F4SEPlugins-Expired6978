@@ -319,6 +319,7 @@ bool OverlayInterface::RemoveOverlay(Actor * actor, bool isFemale, UniqueID uid)
 		
 		if(overlayPtr->uid == uid) {
 			m_dataMap.erase(overlayPtr->uid);
+			m_freeIndices.push_back(overlayPtr->uid);
 			priorityMap->erase(it);
 			return true;
 		}

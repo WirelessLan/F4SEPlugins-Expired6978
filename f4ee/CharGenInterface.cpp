@@ -46,6 +46,21 @@ extern const std::string & GetRuntimeDirectory(void);
 
 static const char * HairGradientPalette = "actors\\character\\hair\\haircolor_lgrad_d.dds";
 
+namespace
+{
+	void AddHeadPart(TESNPC* a_npc, BGSHeadPart* a_hdpt)
+	{
+		if (!a_npc || !a_hdpt)
+		{
+			return;
+		}
+
+		using func_t = void(*)(TESNPC*, BGSHeadPart*, bool, bool, bool);
+		func_t func = RelocAddr<func_t>(0x5B52E0);
+		func(a_npc, a_hdpt, true, false, true);
+	}
+}
+
 DWORD CharGenInterface::SavePreset(const std::string & filePath)
 {
 	DataHandler * dataHandler = (*g_dataHandler);
@@ -177,8 +192,9 @@ DWORD CharGenInterface::SavePreset(const std::string & filePath)
 			BGSCharacterTint::Entry * entry;
 			tints->GetNthItem(i, entry);
 
-			if(entry->percent == 0)
-				continue;
+			if (entry->percent == 0) {
+				_WARNING("Zero percent tint entry found: index=%u, tintIndex=%u, type=%u", i, entry->tintIndex, entry->GetType());
+			}
 
 			sprintf_s(keyName, "%X", entry->tintIndex);
 
@@ -323,20 +339,31 @@ DWORD CharGenInterface::LoadPreset(const std::string & filePath)
 	try
 	{
 		Json::Value parts = root["HeadParts"];
-		for(auto & part : parts)
+		for (auto& part : parts)
 		{
-			TESForm * form = GetFormFromIdentifier(part.asString());
-			if(!form) // Not a valid form
+			TESForm* form = GetFormFromIdentifier(part.asString());
+			if (!form)	// Not a valid form
+			{
 				continue;
+			}
 
-			BGSHeadPart * newPart = DYNAMIC_CAST(form, TESForm, BGSHeadPart);
-			if(!newPart) // Not a head part type
+			BGSHeadPart* newPart = DYNAMIC_CAST(form, TESForm, BGSHeadPart);
+			if (!newPart)	// Not a head part type
+			{
 				continue;
+			}
 
-			npc->ChangeHeadPart(newPart, false, false);
+			if (newPart->type != BGSHeadPart::kTypeMisc)
+			{
+				npc->ChangeHeadPart(newPart, false, false);
+			}
+			else
+			{
+				AddHeadPart(npc, newPart);
+			}
 		}
 	}
-	catch(const std::exception& e)
+	catch (const std::exception& e)
 	{
 		_ERROR(e.what());
 	}
@@ -1235,92 +1262,92 @@ bool CharGenInterface::LoadHairColorData(const std::string & filePath, const Mod
 		Json::Reader reader;
 		Json::Value root;
 
-		if(!reader.parse(strFile, root)) {
+		if (!reader.parse(strFile, root)) {
 			return false;
 		}
 
-		auto colors = root["Colors"];
-		if(!colors.isArray())
+		const auto& colors = root["Colors"];
+		if (!colors.isArray()) {
 			return false;
+		}
 
 		std::unordered_set<BGSColorForm*> colorForms;
 
 		// traverse instances
-		for(auto & item : colors)
-		{
+		for (const auto& item : colors) {
 			try
 			{
 				std::vector<BGSColorForm*> entryForms;
-				auto formEntry = item["Form"];
+				const auto& formEntry = item["Form"];
 
-				std::function<BGSColorForm*(Json::Value & value)> GetColorForm = [&modInfo, &filePath](Json::Value & value) -> BGSColorForm *
+				std::function<BGSColorForm* (const Json::Value& value)> GetColorForm = [&modInfo, &filePath](const Json::Value& value) -> BGSColorForm*
+					{
+						UInt32 formId = 0;
+						sscanf_s(value.asCString(), "%X", &formId);
+
+						formId |= modInfo->GetPartialIndex() << (modInfo->IsLight() ? 12 : 24);
+
+						TESForm* form = LookupFormByID(formId);
+						if (!form) {
+							_WARNING("Loading Hair Colors (%s): Could not find form %08X", filePath.c_str(), formId);
+							return nullptr;
+						}
+
+						BGSColorForm* colorForm = DYNAMIC_CAST(form, TESForm, BGSColorForm);
+						if (!colorForm) {
+							_WARNING("Loading Hair Colors (%s): Wrong form type %08X", filePath.c_str(), formId);
+							return nullptr;
+						}
+
+						return colorForm;
+					};
+
+				if (formEntry.isString())
 				{
-					UInt32 formId = 0;
-					sscanf_s(value.asCString(), "%X", &formId);
-
-					formId |= modInfo->GetPartialIndex() << (modInfo->IsLight() ? 12 : 24);
-
-					TESForm * form = LookupFormByID(formId);
-					if(!form) {
-						_WARNING("Loading Hair Colors (%s): Could not find form %08X", filePath.c_str(), formId);
-						return nullptr;
-					}
-
-					BGSColorForm * colorForm = DYNAMIC_CAST(form, TESForm, BGSColorForm);
-					if(!colorForm) {
-						_WARNING("Loading Hair Colors (%s): Wrong form type %08X", filePath.c_str(), formId);
-						return nullptr;
-					}
-
-					return colorForm;
-				};
-
-				if(formEntry.isString())
-				{
-					BGSColorForm * colorForm = GetColorForm(formEntry);
-					if(colorForm)
+					BGSColorForm* colorForm = GetColorForm(formEntry);
+					if (colorForm)
 						entryForms.push_back(colorForm);
 				}
-				else if(formEntry.isArray())
+				else if (formEntry.isArray())
 				{
-					for(auto & formItem : formEntry)
+					for (const auto& formItem : formEntry)
 					{
-						BGSColorForm * colorForm = GetColorForm(formItem);
-						if(colorForm)
+						BGSColorForm* colorForm = GetColorForm(formItem);
+						if (colorForm)
 							entryForms.push_back(colorForm);
 					}
 				}
-				
+
 				std::string palettePath = item["LUT"].asString();
 				UInt32 gender = item["Gender"].asUInt();
-				auto raceList = item["Races"];
-				
-				for(BGSColorForm * colorForm : entryForms)
+				const auto& raceList = item["Races"];
+
+				for (BGSColorForm* colorForm : entryForms)
 				{
 					colorForm->flags |= 0x8000;
 					colorForms.insert(colorForm);
-					
-					for(auto raceItem : raceList)
+
+					for (const auto& raceItem : raceList)
 					{
 						try
 						{
 							std::string raceName = raceItem.asString();
-							TESRace * race = GetRaceByName(raceName);
-							if(!race) {
-								_WARNING("Loading Hair Colors (%s): Could not find race %s", filePath.c_str(), raceName);
+							TESRace* race = GetRaceByName(raceName);
+							if (!race) {
+								_WARNING("Loading Hair Colors (%s): Could not find race %s", filePath.c_str(), raceName.c_str());
 								continue;
 							}
 
-							for(UInt32 i = 0; i <= 1; i++)
+							for (UInt32 i = 0; i <= 1; i++)
 							{
-								if((i == 0 && !(gender & 0x01)) || (i == 1 && !(gender & 0x02)))
+								if ((i == 0 && !(gender & 0x01)) || (i == 1 && !(gender & 0x02)))
 									continue;
 
 								auto charGenData = race->chargenData[i];
-								if(!charGenData)
+								if (!charGenData)
 									continue;
 
-								if(charGenData->colors)
+								if (charGenData->colors)
 									charGenData->colors->Push(colorForm);
 
 								auto paletteStr = F4EEFixedString(palettePath.c_str());
@@ -1328,14 +1355,14 @@ bool CharGenInterface::LoadHairColorData(const std::string & filePath, const Mod
 								m_LUTs.insert(paletteStr);
 							}
 						}
-						catch(const std::exception& e)
+						catch (const std::exception& e)
 						{
 							_ERROR("Loading Hair Colors (%s): %s", filePath.c_str(), e.what());
 						}
 					}
 				}
 			}
-			catch(const std::exception& e)
+			catch (const std::exception& e)
 			{
 				_ERROR("Loading Hair Colors (%s): %s", filePath.c_str(), e.what());
 			}

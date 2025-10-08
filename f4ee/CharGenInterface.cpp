@@ -1158,7 +1158,7 @@ void CharGenInterface::ProcessHairColor(NiAVObject * node, BGSColorForm * colorF
 				if(material && material->spLookupTexture) {
 
 					std::string fullPath = material->spLookupTexture->name.c_str();
-					std::transform(fullPath.begin(), fullPath.end(), fullPath.begin(), ::tolower);
+					std::transform(fullPath.begin(), fullPath.end(), fullPath.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 
 					fullPath = std::regex_replace(fullPath, std::regex("/+|\\\\+"), "\\"); // Replace multiple slashes or forward slashes with one backslash
 					fullPath = std::regex_replace(fullPath, std::regex("^\\\\+"), ""); // Remove all backslashes from the front
@@ -1229,7 +1229,7 @@ const char * CharGenInterface::ProcessEyebrowPath(TESNPC * npc)
 	if(colorForm && (colorForm->flags & 0x8000) == 0x8000) {
 
 		std::string fullPath = hairTexturePath;
-		std::transform(fullPath.begin(), fullPath.end(), fullPath.begin(), ::tolower);
+		std::transform(fullPath.begin(), fullPath.end(), fullPath.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 
 		fullPath = std::regex_replace(fullPath, std::regex("/+|\\\\+"), "\\"); // Replace multiple slashes or forward slashes with one backslash
 		fullPath = std::regex_replace(fullPath, std::regex("^\\\\+"), ""); // Remove all backslashes from the front

@@ -127,12 +127,14 @@ BodyMorphMapPtr TriShapeMap::GetMorphData(const F4EEFixedString & name)
 
 TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 {
-	F4EEFixedString filePath(relativePath);
-	if(relativePath == "")
+	if (relativePath == nullptr || std::strlen(relativePath) == 0) {
 		return nullptr;
+	}
+
+	F4EEFixedString filePath(relativePath);
 
 	m_morphCacheLock.Lock();
-	auto & it = m_morphCache.find(filePath);
+	auto it = m_morphCache.find(filePath);
 	if (it != m_morphCache.end()) {
 		it->second->accessed = std::time(nullptr);
 		m_morphCacheLock.Release();
@@ -308,7 +310,7 @@ void BodyMorphInterface::ShrinkMorphCache()
 	m_morphCacheLock.Lock();
 	while (m_totalMemory > m_memoryLimit && m_morphCache.size() > 0)
 	{
-		auto & it = std::min_element(m_morphCache.begin(), m_morphCache.end(), [](std::pair<F4EEFixedString, TriShapeMapPtr> a, std::pair<F4EEFixedString, TriShapeMapPtr> b)
+		auto it = std::min_element(m_morphCache.begin(), m_morphCache.end(), [](std::pair<F4EEFixedString, TriShapeMapPtr> a, std::pair<F4EEFixedString, TriShapeMapPtr> b)
 		{
 			return (a.second->accessed < b.second->accessed);
 		});
@@ -347,7 +349,7 @@ void BodyMorphInterface::LoadBodyGenSliderMods()
 	for(IDirectoryIterator iter(loosePath.c_str(), "*.json"); !iter.Done(); iter.Next())
 	{
 		std::string	path = iter.GetFullPath();
-		std::transform(path.begin(), path.begin(), path.end(), ::tolower);
+		std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 		templates.insert(path);
 	}
 
@@ -675,12 +677,13 @@ bool BodyMorphInterface::UpdateMorphs(Actor * actor)
 
 F4EEFixedString PrefixMeshPath(const char * relativePath)
 {
-	if(relativePath == "")
+	if (relativePath == nullptr || std::strlen(relativePath) == 0) {
 		return F4EEFixedString("");
+	}
 
 	std::string targetPath = "meshes\\";
 	targetPath += std::string(relativePath);
-	std::transform(targetPath.begin(), targetPath.end(), targetPath.begin(), ::tolower);
+	std::transform(targetPath.begin(), targetPath.end(), targetPath.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 	return F4EEFixedString(targetPath.c_str());
 }
 

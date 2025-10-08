@@ -235,7 +235,7 @@ bool BodyGenInterface::ReadBodyMorphs(const std::string & filePath)
 			if (form.size() > paramIndex)
 			{
 				std::string genderText = std::trim(form[paramIndex]);
-				std::transform(genderText.begin(), genderText.end(), genderText.begin(), ::tolower);
+				std::transform(genderText.begin(), genderText.end(), genderText.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 				if (genderText.compare("male") == 0) {
 					gender = 0;
 					paramIndex++;
@@ -278,7 +278,7 @@ bool BodyGenInterface::ReadBodyMorphs(const std::string & filePath)
 			UInt8 gender = 0xFF;
 			if (form.size() > paramIndex) {
 				std::string genderText = std::trim(form[paramIndex]);
-				std::transform(genderText.begin(), genderText.end(), genderText.begin(), ::tolower);
+				std::transform(genderText.begin(), genderText.end(), genderText.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 				if (genderText.compare("male") == 0) {
 					gender = 0;
 					paramIndex++;
@@ -550,7 +550,7 @@ void BodyGenInterface::LoadBodyGenMods()
 	for(IDirectoryIterator iter(loosePath.c_str(), "*_templates.ini"); !iter.Done(); iter.Next())
 	{
 		std::string	path = iter.GetFullPath();
-		std::transform(path.begin(), path.begin(), path.end(), ::tolower);
+		std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 		templates.insert(path);
 		
 	}
@@ -559,7 +559,7 @@ void BodyGenInterface::LoadBodyGenMods()
 	for(IDirectoryIterator iter(loosePath.c_str(), "*_morphs.ini"); !iter.Done(); iter.Next())
 	{
 		std::string	path = iter.GetFullPath();
-		std::transform(path.begin(), path.begin(), path.end(), ::tolower);
+		std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 		morphs.insert(path);
 	}
 

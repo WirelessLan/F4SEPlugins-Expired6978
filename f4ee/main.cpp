@@ -592,7 +592,7 @@ bool F4SEPlugin_Load(const F4SEInterface * skse)
 
 	F4EEGetConfigValue("Presets", "bIgnoreTintPalettes", &g_bIgnoreTintPalettes);
 	F4EEGetConfigValue("Presets", "bIgnoreTintTextures", &g_bIgnoreTintTextures);
-	F4EEGetConfigValue("Presets", "bIgnoreTintPalettes", &g_bIgnoreTintMasks);
+	F4EEGetConfigValue("Presets", "bIgnoreTintMasks", &g_bIgnoreTintMasks);
 
 	*g_faceGenTextureWidth = g_tintMaskWidth;
 	*g_faceGenTextureHeight = g_tintMaskHeight;

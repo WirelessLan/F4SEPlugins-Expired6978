@@ -55,21 +55,20 @@ bool Serialization::ReadData<F4EEFixedString>(const F4SESerializationInterface *
 	return true;
 }
 
-std::string bytes_to_string(std::size_t size) {               
-	static const char *SIZES[] = { "B", "KB", "MB", "GB" };
+std::string bytes_to_string(std::size_t size) {
+	static constexpr const char* Sizes[] = { "B", "KB", "MB", "GB" };
+	static constexpr int MaxIndex = static_cast<int>(sizeof Sizes / sizeof * Sizes) - 1;
 
 	int div = 0;
-	size_t rem = 0;
-	while (size >= 1024 && div < (sizeof SIZES / sizeof *SIZES)) {
-		rem = (size % 1024);
-		div++;
-		size /= 1024;
+	double size_d = static_cast<double>(size);
+
+	while (size_d >= 1024.0 && div < MaxIndex) {
+		size_d /= 1024.0;
+		++div;
 	}
 
-	double size_d = (float)size + (float)rem / 1024.0;
-
 	std::stringstream ss;
-	ss << std::fixed << std::setprecision(2) << size_d << SIZES[div];
+	ss << std::fixed << std::setprecision(2) << size_d << Sizes[div];
 	return ss.str();
 }
 

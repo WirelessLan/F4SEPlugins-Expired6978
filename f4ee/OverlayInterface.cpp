@@ -1035,7 +1035,7 @@ void OverlayInterface::LoadOverlayMods()
 	for(IDirectoryIterator iter(loosePath.c_str(), "*.json"); !iter.Done(); iter.Next())
 	{
 		std::string	path = iter.GetFullPath();
-		std::transform(path.begin(), path.begin(), path.end(), ::tolower);
+		std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 		templates.insert(path);
 	}
 

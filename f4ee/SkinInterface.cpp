@@ -111,13 +111,15 @@ void F4EESkinUpdate::Run() {
 	// Only regenerating skin, do a less expensive update
 	if (doSkinUpdate && !doHeadUpdate) {
 		auto middleProcess = actor->middleProcess;
-		if (middleProcess)
-			CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
+		if (middleProcess) {
+			CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x17);
+		}
 	}
 
 	// Regenerate the face
-	if (doHeadUpdate)
+	if (doHeadUpdate) {
 		CALL_MEMBER_FN(actor, QueueUpdate)(false, 0, true, 0);
+	}
 }
 
 // Should already be guaranteed to be TXST or ARMO if it's non-zero
@@ -457,7 +459,7 @@ void SkinInterface::LoadSkinMods()
 	for(IDirectoryIterator iter(loosePath.c_str(), "*.json"); !iter.Done(); iter.Next())
 	{
 		std::string	path = iter.GetFullPath();
-		std::transform(path.begin(), path.begin(), path.end(), ::tolower);
+		std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){ return static_cast<char>(::tolower(c)); });
 		templates.insert(path);
 	}
 

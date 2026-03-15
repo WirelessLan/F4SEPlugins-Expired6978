@@ -574,9 +574,6 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 	if (npc)
 		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
 
-	// Wait for setting morphMap
-	std::this_thread::sleep_for(std::chrono::microseconds(1));
-
 	auto actorMorphs = GetMorphMap(actor, isFemale); // Get the actor's list of morphs
 	if (!actorMorphs) // There's nothing to morph, lets just use the base mesh
 		return false;
@@ -643,13 +640,17 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 
 bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNode)
 {
-	if(!actor || !slotNode)
+	if (!actor || !slotNode) {
 		return false;
+	}
+
+	// Wait for setting morphMap
+	std::this_thread::sleep_for(std::chrono::microseconds(1));
 
 	std::vector<MorphableShapePtr> shapes;
 	GetMorphableShapes(slotNode, shapes);
 
-	if(g_bParallelShapes)
+	if (g_bParallelShapes)
 	{
 		concurrency::parallel_for_each(begin(shapes), end(shapes), [&](const MorphableShapePtr & shape)
 		{
@@ -658,7 +659,7 @@ bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNod
 	}
 	else
 	{
-		for(auto & shape : shapes)
+		for (auto & shape : shapes)
 		{
 			ApplyMorphsToShape(actor, shape);
 		}

@@ -199,7 +199,7 @@ protected:
 	friend class PriorityMap;
 	friend class OverlayData;
 
-	SimpleLock												m_overlayLock;
+	std::mutex												m_overlayLock;
 	OverlayMap												m_overlays[2];
 	std::vector<UniqueID>									m_freeIndices;
 	std::unordered_map<UniqueID, OverlayDataPtr>			m_dataMap;

@@ -38,34 +38,36 @@ EventResult	ActorUpdateManager::ReceiveEvent(TESObjectLoadedEvent * evn, void * 
 		UInt64 gender = CALL_MEMBER_FN(npc, GetSex)();
 		bool isFemale = gender == 1 ? true : false;
 
-		m_pendingLock.Lock();
-		if(m_loading) // We're mid-load, lets just push these to pending
 		{
-			m_pendingActors.insert((gender << 32) | form->formID);
+			std::lock_guard<std::mutex> guard(m_pendingLock);
+
+			if (m_loading) // We're mid-load, lets just push these to pending
+			{
+				m_pendingActors.insert((gender << 32) | form->formID);
+			}
+			else
+			{
+				// We've loaded the game, we can just generate and apply morphs if we don't already have any and we meet the outlined criteria for generation
+				auto morphMap = g_bodyMorphInterface.GetMorphMap(actor, isFemale);
+				if (!morphMap && g_bEnableBodygen)
+				{
+					if (g_bodyGenInterface.EvaluateBodyMorphs(actor, isFemale))
+						morphMap = g_bodyMorphInterface.GetMorphMap(actor, isFemale);
+				}
+				if (g_bEnableSkinOverrides)
+				{
+					g_skinInterface.UpdateSkinOverride(actor, false);
+				}
+				if (morphMap && g_bEnableBodyMorphs)
+				{
+					g_bodyMorphInterface.UpdateMorphs(actor);
+				}
+				if (g_bEnableOverlays)
+				{
+					g_overlayInterface.UpdateOverlays(actor);
+				}
+			}
 		}
-		else
-		{
-			// We've loaded the game, we can just generate and apply morphs if we don't already have any and we meet the outlined criteria for generation
-			auto morphMap = g_bodyMorphInterface.GetMorphMap(actor, isFemale);
-			if(!morphMap && g_bEnableBodygen)
-			{
-				if(g_bodyGenInterface.EvaluateBodyMorphs(actor, isFemale))
-					morphMap = g_bodyMorphInterface.GetMorphMap(actor, isFemale);
-			}
-			if(g_bEnableSkinOverrides)
-			{
-				g_skinInterface.UpdateSkinOverride(actor, false);
-			}
-			if(morphMap && g_bEnableBodyMorphs)
-			{
-				g_bodyMorphInterface.UpdateMorphs(actor);
-			}
-			if(g_bEnableOverlays)
-			{
-				g_overlayInterface.UpdateOverlays(actor);
-			}
-		}
-		m_pendingLock.Release();
 	}
 
 	return kEvent_Continue;
@@ -107,7 +109,8 @@ void ActorUpdateManager::ResolvePendingBodyGen()
 	// We don't need to generate any new morphs at this time
 	if(g_bEnableBodygen)
 	{
-		m_pendingLock.Lock();
+		std::lock_guard<std::mutex> guard(m_pendingLock);
+
 		for(auto & uid : m_pendingActors)
 		{
 			UInt8 gender = uid >> 32;
@@ -128,7 +131,6 @@ void ActorUpdateManager::ResolvePendingBodyGen()
 		}
 
 		m_pendingActors.clear();
-		m_pendingLock.Release();
 	}
 }
 
@@ -143,7 +145,8 @@ EventResult ActorUpdateManager::ReceiveEvent(TESLoadGameEvent * evn, void * disp
 
 void ActorUpdateManager::Flush()
 {
-	m_pendingLock.Lock();
+	std::lock_guard<std::mutex> guard(m_pendingLock);
+
 	for(auto & uid : m_pendingUpdates)
 	{
 		TESForm * form = LookupFormByID(uid);
@@ -160,20 +163,19 @@ void ActorUpdateManager::Flush()
 	}
 
 	m_pendingUpdates.clear();
-	m_pendingLock.Release();
 }
 
 void ActorUpdateManager::PushUpdate(Actor * actor)
 {
-	m_pendingLock.Lock();
+	std::lock_guard<std::mutex> guard(m_pendingLock);
+
 	m_pendingUpdates.emplace(actor->formID);
-	m_pendingLock.Release();
 }
 
 void ActorUpdateManager::Revert()
 {
-	m_pendingLock.Lock();
+	std::lock_guard<std::mutex> guard(m_pendingLock);
+
 	m_pendingActors.clear();
 	m_pendingUpdates.clear();
-	m_pendingLock.Release();
 }

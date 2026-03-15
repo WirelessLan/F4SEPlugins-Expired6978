@@ -8,6 +8,7 @@
 #include "f4se/NiExtraData.h"
 
 #include <memory>
+#include <mutex>
 #include <vector>
 #include <string>
 #include <unordered_map>
@@ -78,7 +79,7 @@ public:
 	TriShapeVertexDataPtr GetVertexData(const F4EEFixedString & name);
 
 protected:
-	SimpleLock	m_morphLock;
+	std::mutex	m_morphLock;
 };
 typedef std::shared_ptr<BodyMorphMap> BodyMorphMapPtr;
 
@@ -93,7 +94,7 @@ public:
 	}
 	BodyMorphMapPtr GetMorphData(const F4EEFixedString & name);
 
-	SimpleLock	m_morphLock;
+	std::mutex	m_morphLock;
 	UInt32 memoryUsage;
 	std::time_t accessed;
 };
@@ -133,17 +134,16 @@ public:
 	void RemoveMorphsByName(const BSFixedString & morph);
 	void RemoveMorphsByKeyword(BGSKeyword * keyword);
 
-	void Lock() { m_morphLock.Lock(); }
-	void Unlock() { m_morphLock.Release(); }
-
+	std::mutex& GetLock() { return m_morphLock; }
+	
 	void Revert()
 	{
-		SimpleLocker locker(&m_morphLock);
+		std::lock_guard<std::mutex> locker(m_morphLock);
 		clear();
 	}
 
 protected:
-	SimpleLock	m_morphLock;
+	std::mutex	m_morphLock;
 };
 typedef std::shared_ptr<MorphValueMap> MorphValueMapPtr;
 
@@ -248,10 +248,10 @@ public:
 	void SetModelProcessor();
 
 private:
-	SimpleLock											m_morphLock;
+	std::mutex											m_morphLock;
 	std::unordered_map<UInt32, MorphValueMapPtr>		m_morphMap[2];
 
-	SimpleLock											m_morphCacheLock;
+	std::mutex											m_morphCacheLock;
 	std::unordered_map<F4EEFixedString, TriShapeMapPtr>	m_morphCache;
 	UInt64												m_totalMemory;
 	UInt64												m_memoryLimit;

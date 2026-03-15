@@ -14,7 +14,7 @@ void DeleteStringEntry(const F4EEFixedString* string)
 
 StringTableItem StringTable::GetString(const F4EEFixedString & str)
 {
-	SimpleLocker locker(&m_lock);
+	std::lock_guard<std::mutex> guard(m_lock);
 	
 	auto it = m_table.find(str);
 	if(it != m_table.end()) {
@@ -31,7 +31,8 @@ StringTableItem StringTable::GetString(const F4EEFixedString & str)
 
 void StringTable::RemoveString(const F4EEFixedString & str)
 {
-	SimpleLocker locker(&m_lock);
+	std::lock_guard<std::mutex> guard(m_lock);
+
 	auto it = m_table.find(str);
 	if(it != m_table.end())
 	{
@@ -106,7 +107,8 @@ bool StringTable::Load(const F4SESerializationInterface * intfc, UInt32 kVersion
 
 void StringTable::Revert()
 {
-	SimpleLocker locker(&m_lock);
+	std::lock_guard<std::mutex> guard(m_lock);
+
 	m_table.clear();
 	m_tableVector.clear();
 }

@@ -2,6 +2,7 @@
 
 #include "f4se/GameEvents.h"
 
+#include <mutex>
 #include <unordered_set>
 
 class Actor;
@@ -26,7 +27,7 @@ public:
 	void SetLoading(bool loading) { m_loading = loading; }
 	void ResolvePendingBodyGen();
 
-	SimpleLock					m_pendingLock;
+	std::mutex					m_pendingLock;
 	bool						m_loading;			// True when the game is loading, false when the cell has loaded
 	std::unordered_set<UInt64>	m_pendingActors;	// Stores the pending actors while loading (Populated while loading, erased during load, remaining actors get new morphs, cleared after)
 	std::unordered_set<UInt64>	m_pendingUpdates;	// Stores the actors for update

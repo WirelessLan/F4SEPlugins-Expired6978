@@ -233,7 +233,8 @@ OverlayInterface::UniqueID OverlayInterface::AddOverlay(Actor * actor, bool isFe
 		return 0;
 	}
 
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	PriorityMapPtr priorityMap;
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit != m_overlays[isFemale ? 1 : 0].end()) {
@@ -258,7 +259,7 @@ OverlayInterface::UniqueID OverlayInterface::AddOverlay(Actor * actor, bool isFe
 
 OverlayInterface::UniqueID OverlayInterface::GetNextUID()
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
 
 	OverlayInterface::UniqueID nextUID = 0;
 	if(!m_freeIndices.empty()) {
@@ -273,7 +274,8 @@ OverlayInterface::UniqueID OverlayInterface::GetNextUID()
 
 bool OverlayInterface::ReorderOverlay(Actor * actor, bool isFemale, UniqueID uid, SInt32 newPriority)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return false;
@@ -302,7 +304,8 @@ bool OverlayInterface::ReorderOverlay(Actor * actor, bool isFemale, UniqueID uid
 
 bool OverlayInterface::RemoveOverlay(Actor * actor, bool isFemale, UniqueID uid)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return false;
@@ -333,7 +336,8 @@ void OverlayInterface::CloneOverlays(Actor * source, Actor * target)
 	if(!source || !target)
 		return;
 
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	bool isFemale = false;
 	TESNPC * npc = DYNAMIC_CAST(source->baseForm, TESForm, TESNPC);
 	if(npc)
@@ -347,7 +351,8 @@ void OverlayInterface::CloneOverlays(Actor * source, Actor * target)
 
 std::pair<SInt32, OverlayInterface::OverlayDataPtr> OverlayInterface::GetActorOverlayByUID(Actor * actor, bool isFemale, UniqueID uid)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return std::make_pair<SInt32, OverlayDataPtr>(0, nullptr);
@@ -372,7 +377,8 @@ std::pair<SInt32, OverlayInterface::OverlayDataPtr> OverlayInterface::GetActorOv
 
 bool OverlayInterface::RemoveAll(Actor * actor, bool isFemale)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return false;
@@ -398,7 +404,8 @@ bool OverlayInterface::RemoveAll(Actor * actor, bool isFemale)
 
 bool OverlayInterface::ForEachOverlay(Actor * actor, bool isFemale, std::function<void(SInt32, const OverlayDataPtr&)> functor)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return false;
@@ -417,8 +424,9 @@ bool OverlayInterface::ForEachOverlay(Actor * actor, bool isFemale, std::functio
 }
 
 bool OverlayInterface::ForEachOverlayBySlot(Actor * actor, bool isFemale, UInt32 slotIndex, std::function<void(SInt32, const OverlayDataPtr&, const F4EEFixedString &, bool)> functor)
-{	
-	SimpleLocker locker(&m_overlayLock);
+{
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto hit = m_overlays[isFemale ? 1 : 0].find(actor->formID);
 	if(hit == m_overlays[isFemale ? 1 : 0].end())
 		return false;
@@ -773,7 +781,7 @@ bool OverlayInterface::OverlayMap::Load(const F4SESerializationInterface * intfc
 
 void OverlayInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
 
 	intfc->OpenRecord('OVRL', kVersion);
 
@@ -785,7 +793,7 @@ void OverlayInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVe
 
 bool OverlayInterface::Load(const F4SESerializationInterface * intfc, UInt32 kVersion, const std::unordered_map<UInt32, StringTableItem> & stringTable)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
 
 	m_overlays[0].Load(intfc, false, kVersion, stringTable);
 	m_overlays[1].Load(intfc, true, kVersion, stringTable);
@@ -805,7 +813,8 @@ bool OverlayInterface::Load(const F4SESerializationInterface * intfc, UInt32 kVe
 
 void OverlayInterface::Revert()
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	m_overlays[0].clear();
 	m_overlays[1].clear();
 	m_freeIndices.clear();
@@ -814,7 +823,8 @@ void OverlayInterface::Revert()
 
 const OverlayInterface::OverlayDataPtr OverlayInterface::GetOverlayByUID(UniqueID uid)
 {
-	SimpleLocker locker(&m_overlayLock);
+	std::lock_guard<std::mutex> guard(m_overlayLock);
+
 	auto it = m_dataMap.find(uid);
 	if(it != m_dataMap.end()) {
 		return it->second;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 #include <algorithm>
 #include <string>
@@ -103,5 +104,5 @@ public:
 protected:
 	std::unordered_map<F4EEFixedString, WeakTableItem> m_table;
 	std::vector<WeakTableItem> m_tableVector;
-	SimpleLock	m_lock;
+	std::mutex	m_lock;
 };

@@ -105,7 +105,8 @@ bool TriShapePackedVertexData::ApplyMorph(UInt16 vertCount, NiPoint3 * vertices,
 
 TriShapeVertexDataPtr BodyMorphMap::GetVertexData(const F4EEFixedString & name)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	auto it = find(name);
 	if(it != end()) {
 		return it->second;
@@ -116,7 +117,8 @@ TriShapeVertexDataPtr BodyMorphMap::GetVertexData(const F4EEFixedString & name)
 
 BodyMorphMapPtr TriShapeMap::GetMorphData(const F4EEFixedString & name)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	auto it = find(name);
 	if(it != end()) {
 		return it->second;
@@ -133,14 +135,15 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 
 	F4EEFixedString filePath(relativePath);
 
-	m_morphCacheLock.Lock();
-	auto it = m_morphCache.find(filePath);
-	if (it != m_morphCache.end()) {
-		it->second->accessed = std::time(nullptr);
-		m_morphCacheLock.Release();
-		return it->second;
+	{
+		std::lock_guard<std::mutex> guard(m_morphCacheLock);
+
+		auto it = m_morphCache.find(filePath);
+		if (it != m_morphCache.end()) {
+			it->second->accessed = std::time(nullptr);
+			return it->second;
+		}
 	}
-	m_morphCacheLock.Release();
 
 #ifdef _DEBUG_FILEIO
 	_MESSAGE("%s - Parsing: %s", __FUNCTION__, filePath.c_str());
@@ -287,9 +290,10 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 
 		trishapeMap->accessed = std::time(nullptr);
 
-		m_morphCacheLock.Lock();
-		m_morphCache.emplace(relativePath, trishapeMap);
-		m_morphCacheLock.Release();
+		{
+			std::lock_guard<std::mutex> guard(m_morphCacheLock);
+			m_morphCache.emplace(relativePath, trishapeMap);
+		}
 
 		m_totalMemory += trishapeMap->memoryUsage;
 
@@ -307,7 +311,8 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 
 void BodyMorphInterface::ShrinkMorphCache()
 {
-	m_morphCacheLock.Lock();
+	std::lock_guard<std::mutex> guard(m_morphCacheLock);
+
 	while (m_totalMemory > m_memoryLimit && m_morphCache.size() > 0)
 	{
 		auto it = std::min_element(m_morphCache.begin(), m_morphCache.end(), [](std::pair<F4EEFixedString, TriShapeMapPtr> a, std::pair<F4EEFixedString, TriShapeMapPtr> b)
@@ -322,7 +327,6 @@ void BodyMorphInterface::ShrinkMorphCache()
 
 	if (m_morphCache.size() == 0) // Just in case we erased but messed up
 		m_totalMemory = sizeof(std::unordered_map<F4EEFixedString, TriShapeMapPtr>);
-	m_morphCacheLock.Release();
 }
 
 void BodyMorphInterface::SetCacheLimit(UInt64 limit)
@@ -607,9 +611,9 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 	newBlock = geomData->vertexData->vertexBlock;
 
 	MorphApplicator morpher(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3>& verts) {
-		SimpleLocker locker(&m_morphLock);
+		std::lock_guard<std::mutex> guard(m_morphLock);
+		std::lock_guard<std::mutex> actorMorphsGuard(actorMorphs->GetLock());
 
-		actorMorphs->Lock();
 		for (auto& actorMorph : *actorMorphs) {
 			float effectiveValue = actorMorph.second->GetEffectiveValue();
 			if (effectiveValue == 0.0f)
@@ -624,7 +628,6 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 				_WARNING("%s - Shape: %s Morph: %s contained out of bounds vertices\t[%s]", __FUNCTION__, morphableShape->shapeName.c_str(), actorMorph.first->c_str(), morphableShape->morphPath.c_str());
 			}
 		}
-		actorMorphs->Unlock();
 	});
 
 	if (geomData) {
@@ -689,7 +692,7 @@ F4EEFixedString PrefixMeshPath(const char * relativePath)
 
 MorphValueMapPtr BodyMorphInterface::GetMorphMap(Actor * actor, bool isFemale)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
 	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
@@ -704,7 +707,7 @@ void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedStr
 	if(!actor)
 		return;
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	MorphValueMapPtr morphMap = nullptr;
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
@@ -725,29 +728,38 @@ void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedStr
 
 void BodyMorphInterface::GetKeywords(Actor * actor, bool isFemale, const BSFixedString & morph, std::vector<BGSKeyword*> & keywords)
 {
-	if(!actor)
+	if (!actor) {
 		return;
+	}
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
-		it->second->GetKeywords(morph, keywords);
+	if (it == m_morphMap[isFemale ? 1 : 0].end()) {
+		return;
 	}
+
+	it->second->GetKeywords(morph, keywords);
 }
 
 void BodyMorphInterface::GetMorphs(Actor * actor, bool isFemale, std::vector<BSFixedString> & morphs)
 {
-	if(!actor)
+	if (!actor) {
 		return;
+	}
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
-		for(auto & morph : *it->second) {
-			if(morph.first)
-				morphs.push_back(morph.first->c_str());
+	if (it == m_morphMap[isFemale ? 1 : 0].end()) {
+		return;
+	}
+
+	morphs.reserve(it->second->size());
+
+	for (auto & morph : *it->second) {
+		if (morph.first) {
+			morphs.push_back(morph.first->c_str());
 		}
 	}
 }
@@ -757,7 +769,7 @@ void BodyMorphInterface::RemoveMorphsByName(Actor * actor, bool isFemale, const 
 	if(!actor)
 		return;
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
 	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
@@ -770,7 +782,7 @@ void BodyMorphInterface::RemoveMorphsByKeyword(Actor * actor, bool isFemale, BGS
 	if(!actor)
 		return;
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
 	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
@@ -783,7 +795,8 @@ void BodyMorphInterface::ClearMorphs(Actor * actor, bool isFemale)
 	if(!actor)
 		return;
 
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
 	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
 		m_morphMap[isFemale ? 1 : 0].erase(it);
@@ -795,7 +808,8 @@ void BodyMorphInterface::CloneMorphs(Actor * source, Actor * target)
 	if(!source || !target)
 		return;
 
-	SimpleLocker locker(&m_morphLock);	
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	bool isFemale = false;
 	TESNPC * npc = DYNAMIC_CAST(source->baseForm, TESForm, TESNPC);
 	if(npc)
@@ -809,7 +823,7 @@ void BodyMorphInterface::CloneMorphs(Actor * source, Actor * target)
 
 float BodyMorphInterface::GetMorph(Actor * actor, bool isFemale, const BSFixedString & morph, BGSKeyword * keyword)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	MorphValueMapPtr morphMap = nullptr;
 	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
@@ -864,7 +878,7 @@ float UserValues::GetEffectiveValue()
 
 void MorphValueMap::SetMorph(const BSFixedString & morph, BGSKeyword * keyword, float value)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	UserValuesPtr userValues = nullptr;
 	StringTableItem string = g_stringTable.GetString(morph);
@@ -886,7 +900,7 @@ void MorphValueMap::SetMorph(const BSFixedString & morph, BGSKeyword * keyword, 
 
 float MorphValueMap::GetMorph(const BSFixedString & morph, BGSKeyword * keyword)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = find(g_stringTable.GetString(morph));
 	if(it != end()) {
@@ -898,18 +912,23 @@ float MorphValueMap::GetMorph(const BSFixedString & morph, BGSKeyword * keyword)
 
 void MorphValueMap::GetKeywords(const BSFixedString & morph, std::vector<BGSKeyword*> & keywords)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	auto it = find(g_stringTable.GetString(morph));
-	if(it != end()) {
-		for(auto & kwds : *it->second) {
-			keywords.push_back((BGSKeyword*)LookupFormByID(kwds.first));
-		}
+	if (it == end()) {
+		return;
+	}
+
+	keywords.reserve(it->second->size());
+
+	for(auto & kwds : *it->second) {
+		keywords.push_back((BGSKeyword*)LookupFormByID(kwds.first));
 	}
 }
 
 void MorphValueMap::RemoveMorphsByName(const BSFixedString & morph)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	auto it = find(g_stringTable.GetString(morph));
 	if(it != end()) {
@@ -919,7 +938,7 @@ void MorphValueMap::RemoveMorphsByName(const BSFixedString & morph)
 
 void MorphValueMap::RemoveMorphsByKeyword(BGSKeyword * keyword)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	for(auto & values : *this) {
 		values.second->RemoveKeyword(keyword);
@@ -928,7 +947,7 @@ void MorphValueMap::RemoveMorphsByKeyword(BGSKeyword * keyword)
 
 void BodyMorphInterface::Save(const F4SESerializationInterface * intfc, UInt32 kVersion)
 {
-	SimpleLocker locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	// Male handles
 	for(auto & morph : m_morphMap[0])
@@ -1096,9 +1115,10 @@ bool MorphValueMap::Load(const F4SESerializationInterface * intfc, UInt32 kVersi
 					if(userValues->empty())
 						continue;
 
-					m_morphLock.Lock();
-					emplace(it->second, userValues);
-					m_morphLock.Release();
+					{
+						std::lock_guard<std::mutex> guard(m_morphLock);
+						emplace(it->second, userValues);
+					}
 				}
 
 				break;
@@ -1176,11 +1196,12 @@ bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isF
 			actor = (Actor*)PapyrusVM::GetObjectFromHandle(newHandle, Actor::kTypeID);
 		}
 
-		if(actor)
+		if (actor)
 		{
-			m_morphLock.Lock();
-			m_morphMap[isFemale ? 1 : 0].emplace(actor->formID, morphValueMap);
-			m_morphLock.Release();
+			{
+				std::lock_guard<std::mutex> guard(m_morphLock);
+				m_morphMap[isFemale ? 1 : 0].emplace(actor->formID, morphValueMap);
+			}
 
 			g_actorUpdateManager.PushUpdate(actor);
 		}
@@ -1191,7 +1212,8 @@ bool BodyMorphInterface::Load(const F4SESerializationInterface * intfc, bool isF
 
 void BodyMorphInterface::Revert()
 {
-	SimpleLocker	locker(&m_morphLock);
+	std::lock_guard<std::mutex> guard(m_morphLock);
+
 	m_morphMap[0].clear();
 	m_morphMap[1].clear();
 }

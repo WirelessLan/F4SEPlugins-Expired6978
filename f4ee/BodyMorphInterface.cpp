@@ -548,99 +548,104 @@ void F4EEBodyGenUpdate::Run()
 bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePtr& morphableShape) {
 	// Don't allow dynamic shapes
 	BSDynamicTriShape* dynamicShape = morphableShape->object->GetAsBSDynamicTriShape();
-	if (dynamicShape) {
+	if (dynamicShape != nullptr) {
 		_WARNING("%s - Shape: %s is dynamic and could not be morphed\t[%s]", __FUNCTION__, morphableShape->shapeName.c_str(), morphableShape->morphPath.c_str());
 		return false;
 	}
 
 	BSTriShape* geometry = morphableShape->object->GetAsBSTriShape();
-	if (!geometry)
+	if (geometry == nullptr) {
 		return false;
+	}
 
 	// Lookup the TRI file from the parsed path
 	auto triMap = GetTrishapeMap(morphableShape->morphPath);
-	if (!triMap)
+	if (!triMap) {
 		return false;
+	}
 
 	ShrinkMorphCache();
 
 	// Lookup the particular morph set for this shape
 	auto morphMap = triMap->GetMorphData(morphableShape->shapeName);
-	if (!morphMap)
+	if (!morphMap) {
 		return false;
+	}
 
 	bool isFemale = false;
 	TESNPC* npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
-	if (npc)
+	if (npc != nullptr) {
 		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
+	}
 
 	auto actorMorphs = GetMorphMap(actor, isFemale); // Get the actor's list of morphs
-	if (!actorMorphs) // There's nothing to morph, lets just use the base mesh
+	if (!actorMorphs) { // There's nothing to morph, lets just use the base mesh
 		return false;
+	}
 
 	UInt64 vertexDesc = geometry->vertexDesc;
 	UInt32 vertexSize = geometry->GetVertexSize();
 	UInt32 blockSize = geometry->numVertices * vertexSize;
 
-	BSGeometryData* baseData = geometry->geometryData;
-	BSGeometryData* geomData = nullptr;
-	if (!baseData)
+	auto* baseData = geometry->geometryData;
+	if (baseData == nullptr) {
 		return false;
+	}
 
-	auto vertexData = baseData->vertexData;
-	if (!vertexData)
+	auto* vertexData = baseData->vertexData;
+	if (vertexData == nullptr) {
 		return false;
+	}
 
-	if (!(vertexDesc & BSGeometry::kFlag_Vertex)) // What kind of dumbass mesh doesn't have verts
+	if ((vertexDesc & BSGeometry::kFlag_Vertex) == 0) { // What kind of dumbass mesh doesn't have verts
 		return false;
+	}
 
 #ifdef _DEBUG_MOPRHING
 	_DMESSAGE("%s - Morphing %s (%08X) (%s -> %s) through hook", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID, morphableShape->shapeName.c_str(), geometry->m_name.c_str());
 #endif
 
-	UInt8* newBlock = nullptr;
-
 	// Create the cloned copy
-	geomData = CALL_MEMBER_FN(g_renderManager, CreateBSGeometryData)(&blockSize, vertexData->vertexBlock, geometry->vertexDesc, baseData->triangleData);
-	if (!geomData)
+	BSGeometryData* geomData = CALL_MEMBER_FN(g_renderManager, CreateBSGeometryData)(&blockSize, vertexData->vertexBlock, geometry->vertexDesc, baseData->triangleData);
+	if (geomData == nullptr) {
 		return false;
+	}
 
-	newBlock = geomData->vertexData->vertexBlock;
+	auto* newBlock = geomData->vertexData->vertexBlock;
 
 	MorphApplicator morpher(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3>& verts) {
-		std::lock_guard<std::mutex> guard(m_morphLock);
 		std::lock_guard<std::mutex> actorMorphsGuard(actorMorphs->GetLock());
 
 		for (auto& actorMorph : *actorMorphs) {
-			float effectiveValue = actorMorph.second->GetEffectiveValue();
-			if (effectiveValue == 0.0f)
+			const auto effectiveValue = actorMorph.second->GetEffectiveValue();
+			if (effectiveValue == 0.0f) {
 				continue;
+			}
 
 			auto morph = morphMap->GetVertexData(*actorMorph.first);
-			if (!morph)
+			if (!morph) {
 				continue;
+			}
 
-			bool outOfBounds = morph->ApplyMorph(geometry->numVertices, (NiPoint3*)&verts.at(0), effectiveValue);
+			const auto outOfBounds = morph->ApplyMorph(geometry->numVertices, reinterpret_cast<NiPoint3*>(&verts.at(0)), effectiveValue);
 			if (outOfBounds) {
 				_WARNING("%s - Shape: %s Morph: %s contained out of bounds vertices\t[%s]", __FUNCTION__, morphableShape->shapeName.c_str(), actorMorph.first->c_str(), morphableShape->morphPath.c_str());
 			}
 		}
 	});
 
-	if (geomData) {
-		geometry->geometryData = geomData;
+	geometry->geometryData = geomData;
 
-		// We don't want to delete the original copy, but we'll release because we are forking (Don't know what the other ref is for?)
-		if (baseData->refCount > 2)
-			InterlockedDecrement(&baseData->refCount);
+	// We don't want to delete the original copy, but we'll release because we are forking (Don't know what the other ref is for?)
+	if (baseData->refCount > 2) {
+		InterlockedDecrement(&baseData->refCount);
 	}
 
-	return false;
+	return true;
 }
 
-bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNode)
-{
-	if (!actor || !slotNode) {
+bool BodyMorphInterface::ApplyMorphsToShapes(Actor* actor, NiAVObject* slotNode) {
+	if (actor == nullptr || slotNode == nullptr) {
 		return false;
 	}
 
@@ -650,17 +655,13 @@ bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNod
 	std::vector<MorphableShapePtr> shapes;
 	GetMorphableShapes(slotNode, shapes);
 
-	if (g_bParallelShapes)
-	{
-		concurrency::parallel_for_each(begin(shapes), end(shapes), [&](const MorphableShapePtr & shape)
-		{
+	if (g_bParallelShapes) {
+		concurrency::parallel_for_each(begin(shapes), end(shapes), [&](const MorphableShapePtr & shape) {
 			ApplyMorphsToShape(actor, shape);
 		}, concurrency::static_partitioner());
 	}
-	else
-	{
-		for (auto & shape : shapes)
-		{
+	else {
+		for (auto& shape : shapes) {
 			ApplyMorphsToShape(actor, shape);
 		}
 	}
@@ -670,17 +671,18 @@ bool BodyMorphInterface::ApplyMorphsToShapes(Actor * actor, NiAVObject * slotNod
 
 bool BodyMorphInterface::UpdateMorphs(Actor * actor)
 {
-	if(!actor)
-			return false;
+	if (actor == nullptr) {
+		return false;
+	}
 
-	if(g_task)
+	if (g_task != nullptr) {
 		g_task->AddTask(new F4EEBodyGenUpdate(actor, true));
+	}
 
 	return true;
 }
 
-F4EEFixedString PrefixMeshPath(const char * relativePath)
-{
+F4EEFixedString PrefixMeshPath(const char* relativePath) {
 	if (relativePath == nullptr || std::strlen(relativePath) == 0) {
 		return F4EEFixedString("");
 	}
@@ -691,257 +693,269 @@ F4EEFixedString PrefixMeshPath(const char * relativePath)
 	return F4EEFixedString(targetPath.c_str());
 }
 
-MorphValueMapPtr BodyMorphInterface::GetMorphMap(Actor * actor, bool isFemale)
-{
+MorphValueMapPtr BodyMorphInterface::GetMorphMap(Actor* actor, bool isFemale) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it != morphMap.end()) {
 		return it->second;
 	}
 
 	return nullptr;
 }
 
-void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedString & morph, BGSKeyword * keyword, float value)
-{
-	if(!actor)
+void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedString & morph, BGSKeyword * keyword, float value) {
+	if (actor == nullptr) {
 		return;
+	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	MorphValueMapPtr morphMap = nullptr;
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it == m_morphMap[isFemale ? 1 : 0].end()) {
-		morphMap = std::make_shared<MorphValueMap>();
-		m_morphMap[isFemale ? 1 : 0].emplace(actor ? actor->formID : 0, morphMap);
-	}
-	else
-		morphMap = it->second;
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
 
-	morphMap->SetMorph(morph, keyword, value);
+	auto it = morphMap.find(formId);
+	if (it == morphMap.end()) {
+		it = morphMap.emplace(formId, std::make_shared<MorphValueMap>()).first;
+	}
+
+	auto& actorMorphMap = it->second;
+	actorMorphMap->SetMorph(morph, keyword, value);
 
 	// Still no morphs, or we tried to insert zero itself, erase this key
-	if(morphMap->size() == 0) {
-		m_morphMap[isFemale ? 1 : 0].erase(actor ? actor->formID : 0);
+	if (actorMorphMap->empty()) {
+		morphMap.erase(actor ? actor->formID : 0);
 	}
 }
 
-void BodyMorphInterface::GetKeywords(Actor * actor, bool isFemale, const BSFixedString & morph, std::vector<BGSKeyword*> & keywords)
-{
-	if (!actor) {
+void BodyMorphInterface::GetKeywords(Actor* actor, bool isFemale, const BSFixedString& morph, std::vector<BGSKeyword*>& keywords) {
+	if (actor == nullptr) {
 		return;
 	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if (it == m_morphMap[isFemale ? 1 : 0].end()) {
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it == morphMap.end()) {
 		return;
 	}
 
-	it->second->GetKeywords(morph, keywords);
+	auto& actorMorphMap = it->second;
+	actorMorphMap->GetKeywords(morph, keywords);
 }
 
-void BodyMorphInterface::GetMorphs(Actor * actor, bool isFemale, std::vector<BSFixedString> & morphs)
-{
-	if (!actor) {
+void BodyMorphInterface::GetMorphs(Actor* actor, bool isFemale, std::vector<BSFixedString>& morphs) {
+	if (actor == nullptr) {
 		return;
 	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if (it == m_morphMap[isFemale ? 1 : 0].end()) {
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it == morphMap.end()) {
 		return;
 	}
 
-	morphs.reserve(it->second->size());
+	auto& actorMorphMap = it->second;
+	morphs.reserve(actorMorphMap->size());
 
-	for (auto & morph : *it->second) {
+	for (auto& morph : *actorMorphMap) {
 		if (morph.first) {
 			morphs.push_back(morph.first->c_str());
 		}
 	}
 }
 
-void BodyMorphInterface::RemoveMorphsByName(Actor * actor, bool isFemale, const BSFixedString & morph)
-{
-	if(!actor)
+void BodyMorphInterface::RemoveMorphsByName(Actor* actor, bool isFemale, const BSFixedString& morph) {
+	if (actor == nullptr) {
 		return;
+	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it != morphMap.end()) {
 		it->second->RemoveMorphsByName(morph);
 	}
 }
 
-void BodyMorphInterface::RemoveMorphsByKeyword(Actor * actor, bool isFemale, BGSKeyword * keyword)
-{
-	if(!actor)
+void BodyMorphInterface::RemoveMorphsByKeyword(Actor* actor, bool isFemale, BGSKeyword* keyword) {
+	if (actor == nullptr) {
 		return;
+	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it != morphMap.end()) {
 		it->second->RemoveMorphsByKeyword(keyword);
 	}	
 }
 
-void BodyMorphInterface::ClearMorphs(Actor * actor, bool isFemale)
-{
-	if(!actor)
+void BodyMorphInterface::ClearMorphs(Actor* actor, bool isFemale) {
+	if (actor == nullptr) {
 		return;
+	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
-		m_morphMap[isFemale ? 1 : 0].erase(it);
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it != morphMap.end()) {
+		morphMap.erase(it);
 	}
 }
 
-void BodyMorphInterface::CloneMorphs(Actor * source, Actor * target)
-{
-	if(!source || !target)
+void BodyMorphInterface::CloneMorphs(Actor* source, Actor* target) {
+	if (source == nullptr || target == nullptr) {
 		return;
+	}
 
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
 	bool isFemale = false;
-	TESNPC * npc = DYNAMIC_CAST(source->baseForm, TESForm, TESNPC);
-	if(npc)
+	TESNPC* npc = DYNAMIC_CAST(source->baseForm, TESForm, TESNPC);
+	if (npc != nullptr) {
 		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
+	}
 
-	auto it = m_morphMap[isFemale ? 1 : 0].find(source->formID);
-	if(it != m_morphMap[isFemale ? 1 : 0].end()) {
-		m_morphMap[isFemale ? 1 : 0][target->formID] = it->second;
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+
+	const auto it = morphMap.find(source->formID);
+	if (it != morphMap.end()) {
+		morphMap[target->formID] = it->second;
 	}
 }
 
-float BodyMorphInterface::GetMorph(Actor * actor, bool isFemale, const BSFixedString & morph, BGSKeyword * keyword)
-{
+float BodyMorphInterface::GetMorph(Actor* actor, bool isFemale, const BSFixedString& morph, BGSKeyword* keyword) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	MorphValueMapPtr morphMap = nullptr;
-	auto it = m_morphMap[isFemale ? 1 : 0].find(actor ? actor->formID : 0);
-	if(it != m_morphMap[isFemale ? 1 : 0].end())
+	auto& morphMap = m_morphMap[isFemale ? 1 : 0];
+	const UInt32 formId = (actor != nullptr) ? actor->formID : 0u;
+
+	const auto it = morphMap.find(formId);
+	if (it != morphMap.end()) {
 		return it->second->GetMorph(morph, keyword);
+	}
 
 	return 0.0f;
 }
 
-float UserValues::GetValue(BGSKeyword * keyword)
-{
-	auto it = find(keyword ? keyword->formID : 0);
-	if(it != end()) {
+float UserValues::GetValue(BGSKeyword* keyword) {
+	const auto it = find(keyword ? keyword->formID : 0);
+	if (it != end()) {
 		return it->second;
 	}
 
 	return 0;
 }
 
-void UserValues::SetValue(BGSKeyword * keyword, float value)
-{
-	UInt32 formId = keyword ? keyword->formID : 0;
+void UserValues::SetValue(BGSKeyword* keyword, float value) {
+	const UInt32 formId = keyword ? keyword->formID : 0;
 
 	// Erase the value if it is present and we are putting zero in
-	if(value == 0.0f) {
-		auto it = find(formId);
-		if(it != end()) {
+	if (value == 0.0f) {
+		const auto it = find(formId);
+		if (it != end()) {
 			erase(it);
 		}
-	} else {
+	}
+	else {
 		(*this)[formId] = value;
 	}
 }
 
-void UserValues::RemoveKeyword(BGSKeyword * keyword)
-{
-	auto it = find(keyword ? keyword->formID : 0);
-	if(it != end()) {
+void UserValues::RemoveKeyword(BGSKeyword* keyword) {
+	const auto it = find(keyword ? keyword->formID : 0);
+	if (it != end()) {
 		erase(it);
 	}
 }
 
-float UserValues::GetEffectiveValue()
-{
-	auto maxIt = std::max_element(begin(), end(), [](const std::pair<UInt32,float>& a, const std::pair<UInt32, float>& b) { return a.second < b.second; });
-	if(maxIt != end()) {
+float UserValues::GetEffectiveValue() {
+	const auto maxIt = std::max_element(begin(), end(), [](const std::pair<UInt32,float>& a, const std::pair<UInt32, float>& b) { return a.second < b.second; });
+	if (maxIt != end()) {
 		return maxIt->second;
 	}
 
 	return 0.0f;
 }
 
-void MorphValueMap::SetMorph(const BSFixedString & morph, BGSKeyword * keyword, float value)
-{
+void MorphValueMap::SetMorph(const BSFixedString& morph, BGSKeyword* keyword, float value) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	UserValuesPtr userValues = nullptr;
 	StringTableItem string = g_stringTable.GetString(morph);
-	auto it = find(string);
-	if(it == end()) {
-		userValues = std::make_shared<UserValues>();
-		emplace(string, userValues);
-	}
-	else
-		userValues = it->second;
 
+	auto it = find(string);
+	if (it == end()) {
+		it = emplace(string, std::make_shared<UserValues>()).first;
+	}
+
+	auto& userValues = it->second;
 	userValues->SetValue(keyword, value);
 
 	// No entries left, erase this Morph key
-	if(userValues->size() == 0) {
+	if (userValues->empty()) {
 		erase(string);
 	}
 }
 
-float MorphValueMap::GetMorph(const BSFixedString & morph, BGSKeyword * keyword)
-{
+float MorphValueMap::GetMorph(const BSFixedString& morph, BGSKeyword* keyword) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = find(g_stringTable.GetString(morph));
-	if(it != end()) {
+	const auto it = find(g_stringTable.GetString(morph));
+	if (it != end()) {
 		return it->second->GetValue(keyword);
 	}
 
 	return 0.0f;
 }
 
-void MorphValueMap::GetKeywords(const BSFixedString & morph, std::vector<BGSKeyword*> & keywords)
-{
+void MorphValueMap::GetKeywords(const BSFixedString& morph, std::vector<BGSKeyword*>& keywords) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = find(g_stringTable.GetString(morph));
+	const auto it = find(g_stringTable.GetString(morph));
 	if (it == end()) {
 		return;
 	}
 
 	keywords.reserve(it->second->size());
 
-	for(auto & kwds : *it->second) {
+	for (auto& kwds : *it->second) {
 		keywords.push_back((BGSKeyword*)LookupFormByID(kwds.first));
 	}
 }
 
-void MorphValueMap::RemoveMorphsByName(const BSFixedString & morph)
-{
+void MorphValueMap::RemoveMorphsByName(const BSFixedString & morph) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	auto it = find(g_stringTable.GetString(morph));
-	if(it != end()) {
+	const auto it = find(g_stringTable.GetString(morph));
+	if (it != end()) {
 		erase(it);
 	}
 }
 
-void MorphValueMap::RemoveMorphsByKeyword(BGSKeyword * keyword)
-{
+void MorphValueMap::RemoveMorphsByKeyword(BGSKeyword* keyword) {
 	std::lock_guard<std::mutex> guard(m_morphLock);
 
-	for(auto & values : *this) {
+	for (auto& values : *this) {
 		values.second->RemoveKeyword(keyword);
 	}
 }

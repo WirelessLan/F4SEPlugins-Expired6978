@@ -587,6 +587,10 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 	UInt32 vertexSize = geometry->GetVertexSize();
 	UInt32 blockSize = geometry->numVertices * vertexSize;
 
+	if (!Morpher::HasRequiredMorphFlags(vertexDesc)) {
+		return false;
+	}
+
 	auto* baseData = geometry->geometryData;
 	if (baseData == nullptr) {
 		return false;
@@ -597,7 +601,8 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 		return false;
 	}
 
-	if ((vertexDesc & BSGeometry::kFlag_Vertex) == 0) { // What kind of dumbass mesh doesn't have verts
+	auto* triangleData = baseData->triangleData;
+	if (geometry->numTriangles == 0 || triangleData == nullptr || triangleData->triangles == nullptr) {
 		return false;
 	}
 
@@ -613,7 +618,7 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 
 	auto* newBlock = geomData->vertexData->vertexBlock;
 
-	MorphApplicator morpher(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3>& verts) {
+	Morpher::ApplyMorph(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3>& verts) {
 		std::lock_guard<std::mutex> actorMorphsGuard(actorMorphs->GetLock());
 
 		for (auto& actorMorph : *actorMorphs) {
@@ -669,8 +674,7 @@ bool BodyMorphInterface::ApplyMorphsToShapes(Actor* actor, NiAVObject* slotNode)
 	return true;
 }
 
-bool BodyMorphInterface::UpdateMorphs(Actor * actor)
-{
+bool BodyMorphInterface::UpdateMorphs(Actor* actor) {
 	if (actor == nullptr) {
 		return false;
 	}
@@ -707,7 +711,7 @@ MorphValueMapPtr BodyMorphInterface::GetMorphMap(Actor* actor, bool isFemale) {
 	return nullptr;
 }
 
-void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedString & morph, BGSKeyword * keyword, float value) {
+void BodyMorphInterface::SetMorph(Actor* actor, bool isFemale, const BSFixedString& morph, BGSKeyword* keyword, float value) {
 	if (actor == nullptr) {
 		return;
 	}
@@ -727,7 +731,7 @@ void BodyMorphInterface::SetMorph(Actor * actor, bool isFemale, const BSFixedStr
 
 	// Still no morphs, or we tried to insert zero itself, erase this key
 	if (actorMorphMap->empty()) {
-		morphMap.erase(actor ? actor->formID : 0);
+		morphMap.erase(formId);
 	}
 }
 

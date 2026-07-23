@@ -13,79 +13,86 @@ See the included LICENSE file
 
 // A specialized KD tree that finds duplicate vertices in a point cloud.  
 namespace kd_matcher {
-	using point_ref = std::pair<Morpher::Vector3*, std::size_t>;
-	using match = std::pair<point_ref, point_ref>;
-
 	namespace detail {
+		using index_type = UInt32;
+
+		constexpr index_type invalidIndex = static_cast<index_type>(-1);
+
 		struct kd_node {
-			point_ref p;
-			kd_node* less;
-			kd_node* more;
+			index_type pointIndex;
+			index_type less = invalidIndex;
+			index_type more = invalidIndex;
 
-			kd_node() : p(nullptr, 0), less(nullptr), more(nullptr) {}
-			explicit kd_node(point_ref point) : p(std::move(point)), less(nullptr), more(nullptr) {}
-
-			point_ref add(const point_ref& point, int depth, std::vector<kd_node>& nodes) {
-				int axis = depth % 3;
-				bool domore = false;
-
-				float dx = p.first->x - point.first->x;
-				float dy = p.first->y - point.first->y;
-				float dz = p.first->z - point.first->z;
-
-				if (std::fabs(dx) < EPSILON && std::fabs(dy) < EPSILON && std::fabs(dz) < EPSILON) {
-					return p;
-				}
-
-				switch (axis) {
-				case 0:
-					if (dx > 0) domore = true;
-					break;
-				case 1:
-					if (dy > 0) domore = true;
-					break;
-				case 2:
-					if (dz > 0) domore = true;
-					break;
-				}
-
-				if (domore) {
-					if (more) return more->add(point, depth + 1, nodes);
-					nodes.emplace_back(point);
-					more = &nodes.back();
-				}
-				else {
-					if (less) return less->add(point, depth + 1, nodes);
-					nodes.emplace_back(point);
-					less = &nodes.back();
-				}
-
-				return point_ref(nullptr, 0);
-			}
+			explicit kd_node(index_type index) noexcept : pointIndex(index) {}
 		};
 	}
 
-	inline std::vector<match> find_matches(std::vector<Morpher::Vector3>& points) {
-		if (points.empty()) {
-			return {};
+	template <class Visitor>
+	void for_each_match(const std::vector<Morpher::Vector3>& a_points, Visitor&& a_visitor) {
+		if (a_points.size() < 2) {
+			return;
 		}
 
-		std::vector<match> matches;
 		std::vector<detail::kd_node> nodes;
+		nodes.reserve(a_points.size());
+		nodes.emplace_back(0);
 
-		matches.reserve(points.size() - 1);
-		nodes.reserve(static_cast<std::size_t>(points.size()));
-		nodes.emplace_back(point_ref(&points[0], 0));
-		auto* root = &nodes.back();
+		for (std::size_t pointIndex = 1; pointIndex < a_points.size(); ++pointIndex) {
+			detail::index_type nodeIndex = 0;
+			UInt8 axis = 0;
 
-		for (std::size_t ii = 1; ii < points.size(); ++ii) {
-			point_ref point(&points[ii], ii);
-			point_ref pong = root->add(point, 0, nodes);
-			if (pong.first) {
-				matches.emplace_back(point, pong);
+			while (true) {
+				const detail::index_type existingPointIndex = nodes[nodeIndex].pointIndex;
+
+				const Morpher::Vector3& existingPoint = a_points[existingPointIndex];
+				const Morpher::Vector3& point = a_points[pointIndex];
+
+				const float dx = existingPoint.x - point.x;
+				const float dy = existingPoint.y - point.y;
+				const float dz = existingPoint.z - point.z;
+
+				if (dx > -EPSILON && dx < EPSILON && dy > -EPSILON && dy < EPSILON && dz > -EPSILON && dz < EPSILON) {
+					a_visitor(pointIndex, static_cast<std::size_t>(existingPointIndex));
+					break;
+				}
+
+				float axisDifference;
+
+				switch (axis) {
+				case 0:
+					axisDifference = dx;
+					break;
+
+				case 1:
+					axisDifference = dy;
+					break;
+
+				default:
+					axisDifference = dz;
+					break;
+				}
+
+				const bool goMore = axisDifference > 0.0f;
+				const detail::index_type childIndex = goMore ? nodes[nodeIndex].more : nodes[nodeIndex].less;
+
+				if (childIndex != detail::invalidIndex) {
+					nodeIndex = childIndex;
+					axis = axis == 2 ? static_cast<UInt8>(0) : static_cast<UInt8>(axis + 1);
+					continue;
+				}
+
+				const detail::index_type newNodeIndex = static_cast<detail::index_type>(nodes.size());
+				nodes.emplace_back(static_cast<detail::index_type>(pointIndex));
+
+				if (goMore) {
+					nodes[nodeIndex].more = newNodeIndex;
+				}
+				else {
+					nodes[nodeIndex].less = newNodeIndex;
+				}
+
+				break;
 			}
 		}
-
-		return matches;
 	}
 }

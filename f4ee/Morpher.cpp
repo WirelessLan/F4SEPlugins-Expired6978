@@ -1,10 +1,12 @@
 #include "Morpher.h"
 
-#include <algorithm>
 #include <cmath>
+#include <vector>
 #undef min
 #undef max
 #include "half.hpp"
+#include "kd_matcher.hpp"
+
 #include "f4se/BSGeometry.h"
 
 namespace {
@@ -13,86 +15,134 @@ namespace {
 	}
 
 	struct MorphBuffers {
-		std::vector<Morpher::Vector3> vertices;
-		std::vector<Morpher::Vector3> normals;
-		std::vector<Morpher::Vector2> uvs;
-		std::vector<Morpher::Vector3> tangents;
-		std::vector<Morpher::Vector3> bitangents;
+		static constexpr std::size_t kBufferCount = 5;
 
-		explicit MorphBuffers(std::size_t numVertices) : vertices(numVertices), normals(numVertices), uvs(numVertices), tangents(numVertices), bitangents(numVertices) {}
+		std::size_t numVertices;
+		std::vector<Morpher::Vector3> storage;
+
+		explicit MorphBuffers(std::size_t count) : numVertices(count), storage(count * kBufferCount) {}
+
+		Morpher::Vector3* vertices() {
+			return storage.data();
+		}
+
+		Morpher::Vector3& vertex(std::size_t index) {
+			return storage[index];
+		}
+
+		Morpher::Vector3& uv(std::size_t index) {
+			return storage[numVertices + index];
+		}
+
+		Morpher::Vector3& transformedVertex(std::size_t index) {
+			return storage[numVertices * 2 + index];
+		}
+
+		Morpher::Vector3& tangent(std::size_t index) {
+			return transformedVertex(index);
+		}
+
+		Morpher::Vector3& normal(std::size_t index) {
+			return storage[numVertices * 3 + index];
+		}
+
+		Morpher::Vector3& bitangent(std::size_t index) {
+			return bitangents()[index];
+		}
+
+		Morpher::Vector3* bitangents() {
+			return numVertices == 0 ? nullptr : &storage[numVertices * 4];
+		}
+
+		void beginTangentCalculation() {
+			for (std::size_t i = 0; i < numVertices; ++i) {
+				tangent(i).Zero();
+			}
+		}
 	};
 
 	void RecalcNormals(MorphBuffers& buffers, UInt32 numTriangles, Morpher::Triangle* triangles, bool smooth = true, float smoothThres = 60.0f) {
-		const auto numVertices = buffers.vertices.size();
-
-		auto& verts = buffers.tangents;
-		auto& norms = buffers.normals;
+		const auto numVertices = buffers.numVertices;
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
-			verts[i].x = buffers.vertices[i].x * -0.1f;
-			verts[i].z = buffers.vertices[i].y * 0.1f;
-			verts[i].y = buffers.vertices[i].z * 0.1f;
+			Morpher::Vector3& transformedVertex = buffers.transformedVertex(i);
+			transformedVertex.x = buffers.vertex(i).x * -0.1f;
+			transformedVertex.z = buffers.vertex(i).y * 0.1f;
+			transformedVertex.y = buffers.vertex(i).z * 0.1f;
 		}
 
 		// Face normals
-		Morpher::Vector3 tn;
 		for (UInt32 t = 0; t < numTriangles; ++t) {
-			triangles[t].trinormal(verts, &tn);
-			norms[triangles[t].p1] += tn;
-			norms[triangles[t].p2] += tn;
-			norms[triangles[t].p3] += tn;
+			const Morpher::Triangle& triangle = triangles[t];
+			const Morpher::Vector3& p1 = buffers.transformedVertex(triangle.p1);
+			const Morpher::Vector3& p2 = buffers.transformedVertex(triangle.p2);
+			const Morpher::Vector3& p3 = buffers.transformedVertex(triangle.p3);
+
+			Morpher::Vector3 triangleNormal;
+			triangleNormal.x = (p2.y - p1.y) * (p3.z - p1.z) - (p2.z - p1.z) * (p3.y - p1.y);
+			triangleNormal.y = (p2.z - p1.z) * (p3.x - p1.x) - (p2.x - p1.x) * (p3.z - p1.z);
+			triangleNormal.z = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
+
+			buffers.normal(triangle.p1) += triangleNormal;
+			buffers.normal(triangle.p2) += triangleNormal;
+			buffers.normal(triangle.p3) += triangleNormal;
 		}
 
-		for (auto& n : norms) {
-			n.Normalize();
+		for (std::size_t i = 0; i < numVertices; ++i) {
+			buffers.normal(i).Normalize();
 		}
 
 		// Smooth normals
 		if (smooth) {
-			kd_matcher::for_each_match(verts, [&](std::size_t aIndex, std::size_t bIndex) {
-				Morpher::Vector3& an = norms[aIndex];
-				Morpher::Vector3& bn = norms[bIndex];
+			kd_matcher::for_each_match(
+				numVertices,
+				[&buffers](std::size_t index) -> const Morpher::Vector3& {
+					return buffers.transformedVertex(index);
+				},
+				buffers.bitangents(),
+				[&buffers, smoothThres](std::size_t aIndex, std::size_t bIndex) {
+					Morpher::Vector3& an = buffers.normal(aIndex);
+					Morpher::Vector3& bn = buffers.normal(bIndex);
 
-				if (an.angle(bn) < smoothThres * DEG2RAD) {
-					const Morpher::Vector3 anTemp = an;
-					an += bn;
-					bn += anTemp;
+					if (an.angle(bn) < smoothThres * DEG2RAD) {
+						const Morpher::Vector3 anTemp = an;
+						an += bn;
+						bn += anTemp;
+					}
 				}
-			});
+			);
 
-			for (auto& n : norms) {
-				n.Normalize();
+			for (std::size_t i = 0; i < numVertices; ++i) {
+				buffers.normal(i).Normalize();
 			}
 		}
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
-			const Morpher::Vector3 normal = norms[i];
-			norms[i].x = -normal.x;
-			norms[i].y = normal.z;
-			norms[i].z = normal.y;
+			Morpher::Vector3& outputNormal = buffers.normal(i);
+			const Morpher::Vector3 normal = outputNormal;
+			outputNormal.x = -normal.x;
+			outputNormal.y = normal.z;
+			outputNormal.z = normal.y;
 		}
 	}
 
 	void CalcTangentSpace(MorphBuffers& buffers, UInt32 numTriangles, Morpher::Triangle* triangles) {
-		const auto numVertices = buffers.vertices.size();
+		const auto numVertices = buffers.numVertices;
 
-		auto& tangents = buffers.tangents;
-		auto& bitangents = buffers.bitangents;
-
-		std::fill(tangents.begin(), tangents.end(), Morpher::Vector3{});
+		buffers.beginTangentCalculation();
 
 		for (UInt32 i = 0; i < numTriangles; ++i) {
 			const int i1 = triangles[i].p1;
 			const int i2 = triangles[i].p2;
 			const int i3 = triangles[i].p3;
 
-			const Morpher::Vector3& v1 = buffers.vertices[i1];
-			const Morpher::Vector3& v2 = buffers.vertices[i2];
-			const Morpher::Vector3& v3 = buffers.vertices[i3];
+			const Morpher::Vector3& v1 = buffers.vertex(i1);
+			const Morpher::Vector3& v2 = buffers.vertex(i2);
+			const Morpher::Vector3& v3 = buffers.vertex(i3);
 
-			const Morpher::Vector2& w1 = buffers.uvs[i1];
-			const Morpher::Vector2& w2 = buffers.uvs[i2];
-			const Morpher::Vector2& w3 = buffers.uvs[i3];
+			const Morpher::Vector3& w1 = buffers.uv(i1);
+			const Morpher::Vector3& w2 = buffers.uv(i2);
+			const Morpher::Vector3& w3 = buffers.uv(i3);
 
 			float x1 = v2.x - v1.x;
 			float x2 = v3.x - v1.x;
@@ -101,10 +151,10 @@ namespace {
 			float z1 = v2.z - v1.z;
 			float z2 = v3.z - v1.z;
 
-			float s1 = w2.u - w1.u;
-			float s2 = w3.u - w1.u;
-			float t1 = w2.v - w1.v;
-			float t2 = w3.v - w1.v;
+			float s1 = w2.x - w1.x;
+			float s2 = w3.x - w1.x;
+			float t1 = w2.y - w1.y;
+			float t2 = w3.y - w1.y;
 
 			float r = (s1 * t2 - s2 * t1);
 			r = (r >= 0.0f ? +1.0f : -1.0f);
@@ -115,32 +165,36 @@ namespace {
 			sdir.Normalize();
 			tdir.Normalize();
 
-			tangents[i1] += tdir;
-			tangents[i2] += tdir;
-			tangents[i3] += tdir;
+			buffers.tangent(i1) += tdir;
+			buffers.tangent(i2) += tdir;
+			buffers.tangent(i3) += tdir;
 
-			bitangents[i1] += sdir;
-			bitangents[i2] += sdir;
-			bitangents[i3] += sdir;
+			buffers.bitangent(i1) += sdir;
+			buffers.bitangent(i2) += sdir;
+			buffers.bitangent(i3) += sdir;
 		}
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
-			if (tangents[i].IsZero() || bitangents[i].IsZero()) {
-				tangents[i].x = buffers.normals[i].y;
-				tangents[i].y = buffers.normals[i].z;
-				tangents[i].z = buffers.normals[i].x;
+			Morpher::Vector3& tangent = buffers.tangent(i);
+			Morpher::Vector3& bitangent = buffers.bitangent(i);
+			Morpher::Vector3& normal = buffers.normal(i);
 
-				bitangents[i] = buffers.normals[i].cross(tangents[i]);
+			if (tangent.IsZero() || bitangent.IsZero()) {
+				tangent.x = normal.y;
+				tangent.y = normal.z;
+				tangent.z = normal.x;
+
+				bitangent = normal.cross(tangent);
 			}
 			else {
-				tangents[i].Normalize();
-				tangents[i] = tangents[i] - buffers.normals[i] * buffers.normals[i].dot(tangents[i]);
-				tangents[i].Normalize();
+				tangent.Normalize();
+				tangent = tangent - normal * normal.dot(tangent);
+				tangent.Normalize();
 
-				bitangents[i].Normalize();
-				bitangents[i] = bitangents[i] - buffers.normals[i] * buffers.normals[i].dot(bitangents[i]);
-				bitangents[i] = bitangents[i] - tangents[i] * tangents[i].dot(bitangents[i]);
-				bitangents[i].Normalize();
+				bitangent.Normalize();
+				bitangent = bitangent - normal * normal.dot(bitangent);
+				bitangent = bitangent - tangent * tangent.dot(bitangent);
+				bitangent.Normalize();
 			}
 		}
 	}
@@ -152,7 +206,7 @@ namespace Morpher {
 		return (vertexDesc & kRequiredMorphFlags) == kRequiredMorphFlags;
 	}
 
-	void ApplyMorph(BSTriShape* geometry, UInt8* srcBlock, UInt8* dstBlock, const std::function<void(std::vector<Morpher::Vector3>&)>& morph) {
+	void ApplyMorph(BSTriShape* geometry, UInt8* srcBlock, UInt8* dstBlock, const std::function<void(Morpher::Vector3*, std::size_t)>& morph) {
 		UInt64 vertexDesc = geometry->vertexDesc;
 		UInt32 vertexSize = geometry->GetVertexSize();
 		BSGeometryData* geomData = geometry->geometryData;
@@ -167,29 +221,29 @@ namespace Morpher {
 
 			if ((vertexDesc & BSTriShape::kFlag_FullPrecision) == BSTriShape::kFlag_FullPrecision)
 			{
-				buffers.vertices[i].x = (*(float *)vBegin); vBegin += 4;
-				buffers.vertices[i].y = (*(float *)vBegin); vBegin += 4;
-				buffers.vertices[i].z = (*(float *)vBegin); vBegin += 4;
+				buffers.vertex(i).x = (*(float *)vBegin); vBegin += 4;
+				buffers.vertex(i).y = (*(float *)vBegin); vBegin += 4;
+				buffers.vertex(i).z = (*(float *)vBegin); vBegin += 4;
 
 				vBegin += 4; // Skip BitangetX
 			}
 			else
 			{
-				buffers.vertices[i].x = (*(half_float::half *)vBegin); vBegin += 2;
-				buffers.vertices[i].y = (*(half_float::half *)vBegin); vBegin += 2;
-				buffers.vertices[i].z = (*(half_float::half *)vBegin); vBegin += 2;
+				buffers.vertex(i).x = (*(half_float::half *)vBegin); vBegin += 2;
+				buffers.vertex(i).y = (*(half_float::half *)vBegin); vBegin += 2;
+				buffers.vertex(i).z = (*(half_float::half *)vBegin); vBegin += 2;
 
 				vBegin += 2; // Skip BitangetX
 			}
 
 			if ((vertexDesc & BSTriShape::kFlag_UVs) == BSTriShape::kFlag_UVs)
 			{
-				buffers.uvs[i].u = (*(half_float::half *)vBegin); vBegin += 2;
-				buffers.uvs[i].v = (*(half_float::half *)vBegin); vBegin += 2;
+				buffers.uv(i).x = (*(half_float::half *)vBegin); vBegin += 2;
+				buffers.uv(i).y = (*(half_float::half *)vBegin); vBegin += 2;
 			}
 		}
 
-		morph(buffers.vertices);
+		morph(buffers.vertices(), numVertices);
 
 		Morpher::Triangle* triangles = reinterpret_cast<Morpher::Triangle*>(geomData->triangleData->triangles);
 		RecalcNormals(buffers, geometry->numTriangles, triangles);
@@ -199,20 +253,24 @@ namespace Morpher {
 		for (UInt32 i = 0; i < numVertices; ++i)
 		{
 			UInt8* vBegin = &vertexBlock[i * vertexSize];
+			const Morpher::Vector3& vertex = buffers.vertex(i);
+			const Morpher::Vector3& normal = buffers.normal(i);
+			const Morpher::Vector3& tangent = buffers.tangent(i);
+			const Morpher::Vector3& bitangent = buffers.bitangent(i);
 
 			if ((vertexDesc & BSTriShape::kFlag_FullPrecision) == BSTriShape::kFlag_FullPrecision)
 			{
-				(*(float *)vBegin) = buffers.vertices[i].x; vBegin += 4;
-				(*(float *)vBegin) = buffers.vertices[i].y; vBegin += 4;
-				(*(float *)vBegin) = buffers.vertices[i].z; vBegin += 4;
-				(*(float *)vBegin) = buffers.bitangents[i].x; vBegin += 4;
+				(*(float *)vBegin) = vertex.x; vBegin += 4;
+				(*(float *)vBegin) = vertex.y; vBegin += 4;
+				(*(float *)vBegin) = vertex.z; vBegin += 4;
+				(*(float *)vBegin) = bitangent.x; vBegin += 4;
 			}
 			else
 			{
-				(*(half_float::half *)vBegin) = buffers.vertices[i].x; vBegin += 2;
-				(*(half_float::half *)vBegin) = buffers.vertices[i].y; vBegin += 2;
-				(*(half_float::half *)vBegin) = buffers.vertices[i].z; vBegin += 2;
-				(*(half_float::half *)vBegin) = buffers.bitangents[i].x; vBegin += 2;
+				(*(half_float::half *)vBegin) = vertex.x; vBegin += 2;
+				(*(half_float::half *)vBegin) = vertex.y; vBegin += 2;
+				(*(half_float::half *)vBegin) = vertex.z; vBegin += 2;
+				(*(half_float::half *)vBegin) = bitangent.x; vBegin += 2;
 			}
 
 			// Skip UV write
@@ -223,17 +281,17 @@ namespace Morpher {
 
 			if ((vertexDesc & BSTriShape::kFlag_Normals) == BSTriShape::kFlag_Normals)
 			{
-				*(SInt8*)vBegin = (UInt8)round_v((((buffers.normals[i].x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-				*(SInt8*)vBegin = (UInt8)round_v((((buffers.normals[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-				*(SInt8*)vBegin = (UInt8)round_v((((buffers.normals[i].z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-				*(SInt8*)vBegin = (UInt8)round_v((((buffers.bitangents[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+				*(SInt8*)vBegin = (UInt8)round_v((((normal.x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+				*(SInt8*)vBegin = (UInt8)round_v((((normal.y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+				*(SInt8*)vBegin = (UInt8)round_v((((normal.z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+				*(SInt8*)vBegin = (UInt8)round_v((((bitangent.y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
 
 				if ((vertexDesc & BSTriShape::kFlag_Tangents) == BSTriShape::kFlag_Tangents)
 				{
-					*(SInt8*)vBegin = (UInt8)round_v((((buffers.tangents[i].x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-					*(SInt8*)vBegin = (UInt8)round_v((((buffers.tangents[i].y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-					*(SInt8*)vBegin = (UInt8)round_v((((buffers.tangents[i].z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
-					*(SInt8*)vBegin = (UInt8)round_v((((buffers.bitangents[i].z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+					*(SInt8*)vBegin = (UInt8)round_v((((tangent.x + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+					*(SInt8*)vBegin = (UInt8)round_v((((tangent.y + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+					*(SInt8*)vBegin = (UInt8)round_v((((tangent.z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
+					*(SInt8*)vBegin = (UInt8)round_v((((bitangent.z + 1.0f) / 2.0f) * 255.0f)); vBegin += 1;
 				}
 			}
 		}

@@ -619,7 +619,7 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 
 	auto* newBlock = geomData->vertexData->vertexBlock;
 
-	Morpher::ApplyMorph(geometry, newBlock, newBlock, [&](std::vector<Morpher::Vector3>& verts) {
+	Morpher::ApplyMorph(geometry, newBlock, newBlock, [&](Morpher::Vector3* verts, std::size_t numVerts) {
 		std::lock_guard<std::mutex> actorMorphsGuard(actorMorphs->GetLock());
 
 		for (auto& actorMorph : *actorMorphs) {
@@ -633,7 +633,7 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 				continue;
 			}
 
-			const auto outOfBounds = morph->ApplyMorph(geometry->numVertices, reinterpret_cast<NiPoint3*>(&verts.at(0)), effectiveValue);
+			const auto outOfBounds = morph->ApplyMorph(static_cast<UInt16>(numVerts), reinterpret_cast<NiPoint3*>(verts), effectiveValue);
 			if (outOfBounds) {
 				_WARNING("%s - Shape: %s Morph: %s contained out of bounds vertices\t[%s]", __FUNCTION__, morphableShape->shapeName.c_str(), actorMorph.first->c_str(), morphableShape->morphPath.c_str());
 			}

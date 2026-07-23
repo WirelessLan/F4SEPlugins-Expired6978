@@ -9,6 +9,8 @@ See the included LICENSE file
 
 #include <cmath>
 #include <cstddef>
+#include <new>
+#include <type_traits>
 #include <utility>
 
 // A specialized KD tree that finds duplicate vertices in a point cloud.  
@@ -27,25 +29,33 @@ namespace kd_matcher {
 		};
 	}
 
-	template <class Visitor>
-	void for_each_match(const std::vector<Morpher::Vector3>& a_points, Visitor&& a_visitor) {
-		if (a_points.size() < 2) {
+	template <class PointAccessor, class Visitor>
+	void for_each_match(std::size_t a_pointCount, const PointAccessor& a_pointAt, Morpher::Vector3* a_nodeStorage, Visitor&& a_visitor) {
+		if (a_pointCount < 2) {
 			return;
 		}
 
-		std::vector<detail::kd_node> nodes;
-		nodes.reserve(a_points.size());
-		nodes.emplace_back(0);
+		const auto createNode = [&a_nodeStorage](std::size_t nodeIndex, std::size_t pointIndex) {
+			::new (static_cast<void*>(&a_nodeStorage[nodeIndex])) detail::kd_node(static_cast<detail::index_type>(pointIndex));
+		};
 
-		for (std::size_t pointIndex = 1; pointIndex < a_points.size(); ++pointIndex) {
+		const auto nodeAt = [&a_nodeStorage](std::size_t index) -> detail::kd_node& {
+			return *reinterpret_cast<detail::kd_node*>(static_cast<void*>(&a_nodeStorage[index]));
+		};
+
+		std::size_t nodeCount = 1;
+		createNode(0, 0);
+
+		for (std::size_t pointIndex = 1; pointIndex < a_pointCount; ++pointIndex) {
 			detail::index_type nodeIndex = 0;
 			UInt8 axis = 0;
 
 			while (true) {
-				const detail::index_type existingPointIndex = nodes[nodeIndex].pointIndex;
+				detail::kd_node& node = nodeAt(nodeIndex);
+				const detail::index_type existingPointIndex = node.pointIndex;
 
-				const Morpher::Vector3& existingPoint = a_points[existingPointIndex];
-				const Morpher::Vector3& point = a_points[pointIndex];
+				const Morpher::Vector3& existingPoint = a_pointAt(existingPointIndex);
+				const Morpher::Vector3& point = a_pointAt(pointIndex);
 
 				const float dx = existingPoint.x - point.x;
 				const float dy = existingPoint.y - point.y;
@@ -73,7 +83,7 @@ namespace kd_matcher {
 				}
 
 				const bool goMore = axisDifference > 0.0f;
-				const detail::index_type childIndex = goMore ? nodes[nodeIndex].more : nodes[nodeIndex].less;
+				const detail::index_type childIndex = goMore ? node.more : node.less;
 
 				if (childIndex != detail::invalidIndex) {
 					nodeIndex = childIndex;
@@ -81,18 +91,27 @@ namespace kd_matcher {
 					continue;
 				}
 
-				const detail::index_type newNodeIndex = static_cast<detail::index_type>(nodes.size());
-				nodes.emplace_back(static_cast<detail::index_type>(pointIndex));
+				const detail::index_type newNodeIndex = static_cast<detail::index_type>(nodeCount);
+				createNode(nodeCount++, pointIndex);
 
 				if (goMore) {
-					nodes[nodeIndex].more = newNodeIndex;
+					node.more = newNodeIndex;
 				}
 				else {
-					nodes[nodeIndex].less = newNodeIndex;
+					node.less = newNodeIndex;
 				}
 
 				break;
 			}
 		}
+
+		for (std::size_t nodeIndex = 0; nodeIndex < nodeCount; ++nodeIndex) {
+			::new (static_cast<void*>(&a_nodeStorage[nodeIndex])) Morpher::Vector3();
+		}
 	}
+
+	static_assert(sizeof(Morpher::Vector3) == sizeof(detail::kd_node), "Vector3 and kd_node must have the same size");
+	static_assert(alignof(Morpher::Vector3) == alignof(detail::kd_node), "Vector3 and kd_node must have the same alignment");
+	static_assert(std::is_trivially_destructible<Morpher::Vector3>::value, "Vector3 must be trivially destructible");
+	static_assert(std::is_trivially_destructible<detail::kd_node>::value, "kd_node must be trivially destructible");
 }

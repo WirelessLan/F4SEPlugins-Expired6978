@@ -47,25 +47,25 @@ using namespace Serialization;
 #define _DEBUG_MOPRHING
 #endif
 
-bool TriShapeFullVertexData::ApplyMorph(UInt16 vertCount, NiPoint3 * vertices, float factor)
-{
-	bool outOfBounds = false;
-	if (!vertices)
-		return outOfBounds;
+bool TriShapeFullVertexData::ApplyMorph(UInt16 vertCount, NiPoint3* vertices, float factor) {
+	if (!vertices) {
+		return false;
+	}
 
-	UInt32 size = m_vertexDeltas.size();
-	for (UInt32 i = 0; i < size; i++)
-	{
-		TriShapeVertexDelta * vert = &m_vertexDeltas.at(i);
+	bool outOfBounds = false;
+	const UInt32 size = m_vertexDeltas.size();
+
+	for (UInt32 i = 0; i < size; ++i) {
+		TriShapeVertexDelta* vert = &m_vertexDeltas.at(i);
 		UInt16 vertexIndex = vert->index;
-		NiPoint3 * vertexDiff = &vert->diff;
-		if (vertexIndex < vertCount)
-		{
+		NiPoint3* vertexDiff = &vert->diff;
+
+		if (vertexIndex < vertCount) {
 			vertices[vertexIndex].x += vertexDiff->x * factor;
 			vertices[vertexIndex].y += vertexDiff->y * factor;
 			vertices[vertexIndex].z += vertexDiff->z * factor;
 		}
-		else if(!outOfBounds) { // Prevent spam
+		else if (!outOfBounds) { // Prevent spam
 			_WARNING("%s - Vertex (%d/%d) out of bounds X:%f Y:%f Z:%f", __FUNCTION__, vertexIndex, vertCount, vertexDiff->x, vertexDiff->y, vertexDiff->z);
 			outOfBounds = true;
 		}
@@ -128,8 +128,7 @@ BodyMorphMapPtr TriShapeMap::GetMorphData(const F4EEFixedString & name)
 	return nullptr;
 }
 
-TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
-{
+TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char* relativePath) {
 	if (relativePath == nullptr || std::strlen(relativePath) == 0) {
 		return nullptr;
 	}
@@ -139,7 +138,7 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 	{
 		std::lock_guard<std::mutex> guard(m_morphCacheLock);
 
-		auto it = m_morphCache.find(filePath);
+		const auto it = m_morphCache.find(filePath);
 		if (it != m_morphCache.end()) {
 			it->second->accessed = std::time(nullptr);
 			return it->second;
@@ -151,183 +150,181 @@ TriShapeMapPtr BodyMorphInterface::GetTrishapeMap(const char * relativePath)
 #endif
 
 	BSResourceNiBinaryStream binaryStream(filePath);
-	if(binaryStream.IsValid())
-	{
-		TriShapeMapPtr trishapeMap = std::make_shared<TriShapeMap>();
+	if (!binaryStream.IsValid()) {
+		_ERROR("%s - Error - Failed to load.\t[%s]", __FUNCTION__, relativePath);
+		return nullptr;
+	}
 
-		UInt32 fileFormat = 0;
-		trishapeMap->memoryUsage += binaryStream.Read((char *)&fileFormat, sizeof(UInt32));
+	TriShapeMapPtr trishapeMap = std::make_shared<TriShapeMap>();
 
-		bool packed = false;
-		if (fileFormat != 'TRI\0' && fileFormat != 'TRIP')
-			return nullptr;
+	UInt32 fileFormat = 0;
+	trishapeMap->memoryUsage += binaryStream.Read(&fileFormat, sizeof(UInt32));
 
-		if (fileFormat == 'TRIP')
-			packed = true;
+	if (fileFormat != 'TRI\0' && fileFormat != 'TRIP') {
+		return nullptr;
+	}
 
-		UInt32 trishapeCount = 0;
-		if (!packed)
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeCount, sizeof(UInt32));
-		else
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeCount, sizeof(UInt16));
+	const bool packed = (fileFormat == 'TRIP');
 
-		char trishapeNameRaw[MAX_PATH];
-		for (UInt32 i = 0; i < trishapeCount; i++)
-		{
-			memset(trishapeNameRaw, 0, MAX_PATH);
+	UInt32 trishapeCount = 0;
+	if (!packed) {
+		trishapeMap->memoryUsage += binaryStream.Read(&trishapeCount, sizeof(UInt32));
+	}
+	else {
+		trishapeMap->memoryUsage += binaryStream.Read(&trishapeCount, sizeof(UInt16));
+	}
 
-			UInt8 size = 0;
-			trishapeMap->memoryUsage += binaryStream.Read((char *)&size, sizeof(UInt8));
-			trishapeMap->memoryUsage += binaryStream.Read(trishapeNameRaw, size);
-			F4EEFixedString trishapeName(trishapeNameRaw);
+	for (UInt32 i = 0; i < trishapeCount; ++i) {
+		UInt8 size = 0;
+		trishapeMap->memoryUsage += binaryStream.Read(&size, sizeof(UInt8));
+
+		char trishapeNameRaw[MAX_PATH]{};
+		trishapeMap->memoryUsage += binaryStream.Read(trishapeNameRaw, size);
+
+		F4EEFixedString trishapeName(trishapeNameRaw);
 
 #ifdef _DEBUG_FILEIO
-			_MESSAGE("%s - Reading TriShape %s", __FUNCTION__, trishapeName.c_str());
+		_MESSAGE("%s - Reading TriShape %s", __FUNCTION__, trishapeName.c_str());
 #endif
+
+		if (!packed) {
+			UInt32 trishapeBlockSize = 0;
+			trishapeMap->memoryUsage += binaryStream.Read(&trishapeBlockSize, sizeof(UInt32));
+		}
+
+		UInt32 morphCount = 0;
+		if (!packed) {
+			trishapeMap->memoryUsage += binaryStream.Read(&morphCount, sizeof(UInt32));
+		}
+		else {
+			trishapeMap->memoryUsage += binaryStream.Read(&morphCount, sizeof(UInt16));
+		}
+
+		char morphNameRaw[MAX_PATH];
+		BodyMorphMapPtr morphMap = std::make_shared<BodyMorphMap>();
+
+		for (UInt32 j = 0; j < morphCount; ++j) {
+			std::memset(morphNameRaw, 0, sizeof(morphNameRaw));
+
+			UInt8 tsize = 0;
+			trishapeMap->memoryUsage += binaryStream.Read(&tsize, sizeof(UInt8));
+			trishapeMap->memoryUsage += binaryStream.Read(morphNameRaw, tsize);
+			F4EEFixedString morphName(morphNameRaw);
+
+#ifdef _DEBUG_FILEIO
+			_MESSAGE("%s - Reading Morph %s at (%08X)", __FUNCTION__, morphName.c_str(), binaryStream.GetOffset());
+#endif
+			if (tsize == 0) {
+				_WARNING("%s - Warning - Read empty name morph.\t(%08X) [%s]", __FUNCTION__, binaryStream.GetOffset(), filePath.c_str());
+			}
 
 			if (!packed) {
-				UInt32 trishapeBlockSize = 0;
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&trishapeBlockSize, sizeof(UInt32));
+				UInt32 morphBlockSize = 0;
+				trishapeMap->memoryUsage += binaryStream.Read(&morphBlockSize, sizeof(UInt32));
 			}
 
-			char morphNameRaw[MAX_PATH];
-
-			BodyMorphMapPtr morphMap = std::make_shared<BodyMorphMap>();
-
-			UInt32 morphCount = 0;
-			if (!packed)
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&morphCount, sizeof(UInt32));
-			else
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&morphCount, sizeof(UInt16));
-
-			for (UInt32 j = 0; j < morphCount; j++)
-			{
-				memset(morphNameRaw, 0, MAX_PATH);
-
-				UInt8 tsize = 0;
-				trishapeMap->memoryUsage += binaryStream.Read((char *)&tsize, sizeof(UInt8));
-				trishapeMap->memoryUsage += binaryStream.Read(morphNameRaw, tsize);
-				F4EEFixedString morphName(morphNameRaw);
-
-#ifdef _DEBUG_FILEIO
-				_MESSAGE("%s - Reading Morph %s at (%08X)", __FUNCTION__, morphName.c_str(), binaryStream.GetOffset());
-#endif
-				if (tsize == 0) {
-					_WARNING("%s - Warning - Read empty name morph.\t(%08X) [%s]", __FUNCTION__, binaryStream.GetOffset(), filePath.c_str());
-				}
-
-				if (!packed) {
-					UInt32 morphBlockSize = 0;
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&morphBlockSize, sizeof(UInt32));
-				}
-
-				UInt32 vertexNum = 0;
-				float multiplier = 0.0f;
-				if(!packed) {
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexNum, sizeof(UInt32));
-				}
-				else {
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&multiplier, sizeof(float));
-					trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexNum, sizeof(UInt16));
-				}
-
-				if (vertexNum == 0) {
-					_WARNING("%s - Error - Read morph %s on %s with no vertices.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
-				}
-				if (multiplier == 0.0f) {
-					_WARNING("%s - Error - Read morph %s on %s with zero multiplier.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
-				}
-
-#ifdef _DEBUG_FILEIO
-				_MESSAGE("%s - Total Vertices read: %d at (%08X)", __FUNCTION__, vertexNum, binaryStream.GetOffset());
-#endif
-				if (vertexNum > (std::numeric_limits<UInt16>::max)())
-				{
-					_ERROR("%s - Error - Too many vertices for %s on %s read: %d.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), vertexNum, trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
-					return nullptr;
-				}
-
-				TriShapeVertexDataPtr vertexData;
-				TriShapeFullVertexDataPtr fullVertexData;
-				TriShapePackedVertexDataPtr packedVertexData;
-				if (!packed)
-				{
-					fullVertexData = std::make_shared<TriShapeFullVertexData>();
-					for (UInt32 k = 0; k < vertexNum; k++)
-					{
-						TriShapeVertexDelta vertexDelta;
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.index, sizeof(UInt32));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.diff, sizeof(NiPoint3));
-						fullVertexData->m_vertexDeltas.push_back(vertexDelta);
-					}
-
-					vertexData = fullVertexData;
-				}
-				else
-				{
-					packedVertexData = std::make_shared<TriShapePackedVertexData>();
-					packedVertexData->m_multiplier = multiplier;
-
-					for (UInt32 k = 0; k < vertexNum; k++)
-					{
-						TriShapePackedVertexDelta vertexDelta;
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.index, sizeof(UInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.x, sizeof(SInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.y, sizeof(SInt16));
-						trishapeMap->memoryUsage += binaryStream.Read((char *)&vertexDelta.z, sizeof(SInt16));
-
-						packedVertexData->m_vertexDeltas.push_back(vertexDelta);
-					}
-
-					vertexData = packedVertexData;
-				}
-
-				morphMap->emplace(morphName, vertexData);
+			float multiplier = 0.0f;
+			UInt32 vertexNum = 0;
+			if(!packed) {
+				trishapeMap->memoryUsage += binaryStream.Read(&vertexNum, sizeof(UInt32));
+			}
+			else {
+				trishapeMap->memoryUsage += binaryStream.Read(&multiplier, sizeof(float));
+				trishapeMap->memoryUsage += binaryStream.Read(&vertexNum, sizeof(UInt16));
 			}
 
-			trishapeMap->emplace(trishapeName, morphMap);
-			
+			if (vertexNum == 0) {
+				_WARNING("%s - Error - Read morph %s on %s with no vertices.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+			}
+			if (multiplier == 0.0f) {
+				_WARNING("%s - Error - Read morph %s on %s with zero multiplier.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+			}
+
+#ifdef _DEBUG_FILEIO
+			_MESSAGE("%s - Total Vertices read: %d at (%08X)", __FUNCTION__, vertexNum, binaryStream.GetOffset());
+#endif
+			if (vertexNum > (std::numeric_limits<UInt16>::max)()) {
+				_ERROR("%s - Error - Too many vertices for %s on %s read: %d.\t(%08X) [%s]", __FUNCTION__, morphName.c_str(), vertexNum, trishapeName.c_str(), binaryStream.GetOffset(), filePath.c_str());
+				return nullptr;
+			}
+
+			TriShapeVertexDataPtr vertexData;
+			TriShapeFullVertexDataPtr fullVertexData;
+			TriShapePackedVertexDataPtr packedVertexData;
+
+			if (!packed) {
+				fullVertexData = std::make_shared<TriShapeFullVertexData>();
+				fullVertexData->m_vertexDeltas.reserve(vertexNum);
+
+				for (UInt32 k = 0; k < vertexNum; ++k) {
+					TriShapeVertexDelta vertexDelta{};
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.index, sizeof(UInt32));
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.diff, sizeof(NiPoint3));
+
+					fullVertexData->m_vertexDeltas.emplace_back(vertexDelta);
+				}
+
+				vertexData = fullVertexData;
+			}
+			else {
+				packedVertexData = std::make_shared<TriShapePackedVertexData>();
+				packedVertexData->m_multiplier = multiplier;
+				packedVertexData->m_vertexDeltas.reserve(vertexNum);
+
+				for (UInt32 k = 0; k < vertexNum; ++k) {
+					TriShapePackedVertexDelta vertexDelta{};
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.index, sizeof(UInt16));
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.x, sizeof(SInt16));
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.y, sizeof(SInt16));
+					trishapeMap->memoryUsage += binaryStream.Read(&vertexDelta.z, sizeof(SInt16));
+
+					packedVertexData->m_vertexDeltas.emplace_back(vertexDelta);
+				}
+
+				vertexData = packedVertexData;
+			}
+
+			morphMap->emplace(morphName, vertexData);
 		}
 
-		trishapeMap->accessed = std::time(nullptr);
-
-		{
-			std::lock_guard<std::mutex> guard(m_morphCacheLock);
-			m_morphCache.emplace(relativePath, trishapeMap);
-		}
-
-		m_totalMemory += trishapeMap->memoryUsage;
-
-		_VMESSAGE("%s - Info - Loaded %s (%s) (Cache: %s / %s)", __FUNCTION__, relativePath, bytes_to_string(trishapeMap->memoryUsage).c_str(), bytes_to_string(m_totalMemory).c_str(), bytes_to_string(m_memoryLimit).c_str());
-		return trishapeMap;
+		trishapeMap->emplace(trishapeName, morphMap);
 	}
-	else
+
+	trishapeMap->accessed = std::time(nullptr);
+
+	UInt64 totalMemory;
 	{
-		_ERROR("%s - Error - Failed to load.\t[%s]", __FUNCTION__, relativePath);
+		std::lock_guard<std::mutex> guard(m_morphCacheLock);
+
+		const auto it = m_morphCache.emplace(filePath, trishapeMap);
+		if (it.second) {
+			m_totalMemory += trishapeMap->memoryUsage;
+		}
+
+		totalMemory = m_totalMemory;
 	}
 
+	_VMESSAGE("%s - Info - Loaded %s (%s) (Cache: %s / %s)", __FUNCTION__, relativePath, bytes_to_string(trishapeMap->memoryUsage).c_str(), bytes_to_string(totalMemory).c_str(), bytes_to_string(m_memoryLimit).c_str());
 
-	return nullptr;
+	return trishapeMap;
 }
 
-void BodyMorphInterface::ShrinkMorphCache()
-{
+void BodyMorphInterface::ShrinkMorphCache() {
 	std::lock_guard<std::mutex> guard(m_morphCacheLock);
 
-	while (m_totalMemory > m_memoryLimit && m_morphCache.size() > 0)
-	{
-		auto it = std::min_element(m_morphCache.begin(), m_morphCache.end(), [](std::pair<F4EEFixedString, TriShapeMapPtr> a, std::pair<F4EEFixedString, TriShapeMapPtr> b)
-		{
-			return (a.second->accessed < b.second->accessed);
+	while (m_totalMemory > m_memoryLimit && !m_morphCache.empty()) {
+		const auto it = std::min_element(m_morphCache.begin(), m_morphCache.end(), [](const auto& a, const auto& b) {
+			return a.second->accessed < b.second->accessed;
 		});
 
-		UInt32 size = it->second->memoryUsage;
+		const auto size = it->second->memoryUsage;
 		m_morphCache.erase(it);
 		m_totalMemory -= size;
 	}
 
-	if (m_morphCache.size() == 0) // Just in case we erased but messed up
+	if (m_morphCache.empty()) { // Just in case we erased but messed up
 		m_totalMemory = sizeof(std::unordered_map<F4EEFixedString, TriShapeMapPtr>);
+	}
 }
 
 void BodyMorphInterface::SetCacheLimit(UInt64 limit)

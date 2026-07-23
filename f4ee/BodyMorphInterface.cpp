@@ -562,25 +562,8 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 		return false;
 	}
 
-	// Lookup the TRI file from the parsed path
-	auto triMap = GetTrishapeMap(morphableShape->morphPath);
-	if (!triMap) {
-		return false;
-	}
-
-	ShrinkMorphCache();
-
-	// Lookup the particular morph set for this shape
-	auto morphMap = triMap->GetMorphData(morphableShape->shapeName);
-	if (!morphMap) {
-		return false;
-	}
-
-	bool isFemale = false;
 	TESNPC* npc = DYNAMIC_CAST(actor->baseForm, TESForm, TESNPC);
-	if (npc != nullptr) {
-		isFemale = CALL_MEMBER_FN(npc, GetSex)() == 1 ? true : false;
-	}
+	const bool isFemale = (npc != nullptr) && (CALL_MEMBER_FN(npc, GetSex)() == 1);
 
 	auto actorMorphs = GetMorphMap(actor, isFemale); // Get the actor's list of morphs
 	if (!actorMorphs) { // There's nothing to morph, lets just use the base mesh
@@ -607,6 +590,20 @@ bool BodyMorphInterface::ApplyMorphsToShape(Actor* actor, const MorphableShapePt
 
 	auto* triangleData = baseData->triangleData;
 	if (geometry->numTriangles == 0 || triangleData == nullptr || triangleData->triangles == nullptr) {
+		return false;
+	}
+
+	// Lookup the TRI file from the parsed path
+	auto triMap = GetTrishapeMap(morphableShape->morphPath);
+	if (!triMap) {
+		return false;
+	}
+
+	ShrinkMorphCache();
+
+	// Lookup the particular morph set for this shape
+	auto morphMap = triMap->GetMorphData(morphableShape->shapeName);
+	if (!morphMap) {
 		return false;
 	}
 

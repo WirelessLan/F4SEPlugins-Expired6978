@@ -1,5 +1,6 @@
 #include "Morpher.h"
 
+#include <algorithm>
 #include <cmath>
 #undef min
 #undef max
@@ -24,8 +25,8 @@ namespace {
 	void RecalcNormals(MorphBuffers& buffers, UInt32 numTriangles, Morpher::Triangle* triangles, bool smooth = true, float smoothThres = 60.0f) {
 		const auto numVertices = buffers.vertices.size();
 
-		std::vector<Morpher::Vector3> verts(numVertices);
-		std::vector<Morpher::Vector3> norms(numVertices);
+		auto& verts = buffers.tangents;
+		auto& norms = buffers.normals;
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
 			verts[i].x = buffers.vertices[i].x * -0.1f;
@@ -65,17 +66,20 @@ namespace {
 		}
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
-			buffers.normals[i].x = -norms[i].x;
-			buffers.normals[i].y = norms[i].z;
-			buffers.normals[i].z = norms[i].y;
+			const Morpher::Vector3 normal = norms[i];
+			norms[i].x = -normal.x;
+			norms[i].y = normal.z;
+			norms[i].z = normal.y;
 		}
 	}
 
 	void CalcTangentSpace(MorphBuffers& buffers, UInt32 numTriangles, Morpher::Triangle* triangles) {
 		const auto numVertices = buffers.vertices.size();
 
-		std::vector<Morpher::Vector3> tan1(numVertices);
-		std::vector<Morpher::Vector3> tan2(numVertices);
+		auto& tangents = buffers.tangents;
+		auto& bitangents = buffers.bitangents;
+
+		std::fill(tangents.begin(), tangents.end(), Morpher::Vector3{});
 
 		for (UInt32 i = 0; i < numTriangles; ++i) {
 			const int i1 = triangles[i].p1;
@@ -111,34 +115,32 @@ namespace {
 			sdir.Normalize();
 			tdir.Normalize();
 
-			tan1[i1] += tdir;
-			tan1[i2] += tdir;
-			tan1[i3] += tdir;
+			tangents[i1] += tdir;
+			tangents[i2] += tdir;
+			tangents[i3] += tdir;
 
-			tan2[i1] += sdir;
-			tan2[i2] += sdir;
-			tan2[i3] += sdir;
+			bitangents[i1] += sdir;
+			bitangents[i2] += sdir;
+			bitangents[i3] += sdir;
 		}
 
 		for (std::size_t i = 0; i < numVertices; ++i) {
-			buffers.tangents[i] = tan1[i];
-			buffers.bitangents[i] = tan2[i];
+			if (tangents[i].IsZero() || bitangents[i].IsZero()) {
+				tangents[i].x = buffers.normals[i].y;
+				tangents[i].y = buffers.normals[i].z;
+				tangents[i].z = buffers.normals[i].x;
 
-			if (buffers.tangents[i].IsZero() || buffers.bitangents[i].IsZero()) {
-				buffers.tangents[i].x = buffers.normals[i].y;
-				buffers.tangents[i].y = buffers.normals[i].z;
-				buffers.tangents[i].z = buffers.normals[i].x;
-				buffers.bitangents[i] = buffers.normals[i].cross(buffers.tangents[i]);
+				bitangents[i] = buffers.normals[i].cross(tangents[i]);
 			}
 			else {
-				buffers.tangents[i].Normalize();
-				buffers.tangents[i] = (buffers.tangents[i] - buffers.normals[i] * buffers.normals[i].dot(buffers.tangents[i]));
-				buffers.tangents[i].Normalize();
+				tangents[i].Normalize();
+				tangents[i] = tangents[i] - buffers.normals[i] * buffers.normals[i].dot(tangents[i]);
+				tangents[i].Normalize();
 
-				buffers.bitangents[i].Normalize();
-				buffers.bitangents[i] = (buffers.bitangents[i] - buffers.normals[i] * buffers.normals[i].dot(buffers.bitangents[i]));
-				buffers.bitangents[i] = (buffers.bitangents[i] - buffers.tangents[i] * buffers.tangents[i].dot(buffers.bitangents[i]));
-				buffers.bitangents[i].Normalize();
+				bitangents[i].Normalize();
+				bitangents[i] = bitangents[i] - buffers.normals[i] * buffers.normals[i].dot(bitangents[i]);
+				bitangents[i] = bitangents[i] - tangents[i] * tangents[i].dot(bitangents[i]);
+				bitangents[i].Normalize();
 			}
 		}
 	}

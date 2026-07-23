@@ -1,4 +1,5 @@
 #include "Morpher.h"
+
 #include <cmath>
 #undef min
 #undef max
@@ -47,35 +48,11 @@ namespace {
 
 		// Smooth normals
 		if (smooth) {
-			const float thresholdDegrees = smoothThres;
-			const float thresholdRadians = thresholdDegrees * DEG2RAD;
-			const float cosineThreshold = std::cos(thresholdRadians);
-			const float cosineThresholdSquared = cosineThreshold * cosineThreshold;
-
 			kd_matcher::for_each_match(verts, [&](std::size_t aIndex, std::size_t bIndex) {
 				Morpher::Vector3& an = norms[aIndex];
 				Morpher::Vector3& bn = norms[bIndex];
 
-				const float dot = an.x * bn.x + an.y * bn.y + an.z * bn.z;
-				const float anLengthSquared = an.x * an.x + an.y * an.y + an.z * an.z;
-				const float bnLengthSquared = bn.x * bn.x + bn.y * bn.y + bn.z * bn.z;
-				const float lengthProduct = anLengthSquared * bnLengthSquared;
-
-				bool withinThreshold;
-				if (thresholdDegrees <= 0.0f) {
-					withinThreshold = false;
-				}
-				else if (thresholdDegrees > 180.0f) {
-					withinThreshold = true;
-				}
-				else if (thresholdDegrees <= 90.0f) {
-					withinThreshold = dot > 0.0f && dot * dot > cosineThresholdSquared * lengthProduct;
-				}
-				else {
-					withinThreshold = dot >= 0.0f || dot * dot < cosineThresholdSquared * lengthProduct;
-				}
-
-				if (withinThreshold) {
+				if (an.angle(bn) < smoothThres * DEG2RAD) {
 					const Morpher::Vector3 anTemp = an;
 					an += bn;
 					bn += anTemp;

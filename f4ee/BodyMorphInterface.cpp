@@ -1,4 +1,5 @@
 #include "BodyMorphInterface.h"
+
 #include "BodyGenInterface.h"
 #include "OverlayInterface.h"
 #include "ActorUpdateManager.h"
@@ -436,110 +437,116 @@ bool BodySlider::Parse(const Json::Value & entry)
 	return true;
 }
 
-bool BodyMorphInterface::IsNodeMorphable(NiAVObject * rootNode)
-{
-	return VisitObjects(rootNode, [&](NiAVObject * node)
-	{
-		BSTriShape * trishape = node->GetAsBSTriShape();
-		if(trishape)
-		{
-			NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
-			if(!bodyMorph)
-				return false;
-
-			NiPointer<NiStringExtraData> morphPath(DYNAMIC_CAST(trishape->GetExtraData("MORPH_FILE"), NiExtraData, NiStringExtraData));
-			if(!morphPath)
-				return false;
-
-			return true;
+bool BodyMorphInterface::IsNodeMorphable(NiAVObject* rootNode) {
+	return VisitObjects(rootNode, [&](NiAVObject* node) {
+		BSTriShape* trishape = node->GetAsBSTriShape();
+		if (trishape == nullptr) {
+			return false;
 		}
+
+		NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
+		if (bodyMorph == nullptr) {
+			return false;
+		}
+
+		NiPointer<NiStringExtraData> morphPath(DYNAMIC_CAST(trishape->GetExtraData("MORPH_FILE"), NiExtraData, NiStringExtraData));
+		if (morphPath == nullptr) {
+			return false;
+		}
+
+		return true;
+	});
+}
+
+void BodyMorphInterface::GetMorphableShapes(NiAVObject* rootNode, std::vector<MorphableShapePtr>& shapes) {
+	VisitObjects(rootNode, [&](NiAVObject* node) {
+		BSTriShape* trishape = node->GetAsBSTriShape();
+		if (trishape == nullptr) {
+			return false;
+		}
+
+		NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
+		if (bodyMorph == nullptr) {
+			return false;
+		}
+
+		NiPointer<NiStringExtraData> morphPath(DYNAMIC_CAST(trishape->GetExtraData("MORPH_FILE"), NiExtraData, NiStringExtraData));
+		if (morphPath == nullptr) {
+			return false;
+		}
+
+		shapes.push_back(std::make_shared<MorphableShape>(trishape, morphPath->m_string, bodyMorph->m_string));
 
 		return false;
 	});
 }
 
-void BodyMorphInterface::GetMorphableShapes(NiAVObject * rootNode, std::vector<MorphableShapePtr> & shapes)
-{
-	VisitObjects(rootNode, [&](NiAVObject * node)
-	{
-		BSTriShape * trishape = node->GetAsBSTriShape();
-		if(trishape)
-		{
-			NiPointer<NiStringExtraData> bodyMorph(DYNAMIC_CAST(trishape->GetExtraData("MORPH_SHAPE"), NiExtraData, NiStringExtraData));
-			if(!bodyMorph)
-				return false;
-
-			NiPointer<NiStringExtraData> morphPath(DYNAMIC_CAST(trishape->GetExtraData("MORPH_FILE"), NiExtraData, NiStringExtraData));
-			if(!morphPath)
-				return false;
-
-			shapes.push_back(std::make_shared<MorphableShape>(trishape, morphPath->m_string, bodyMorph->m_string));
-		}
-		return false;
-	});
-}
-
-F4EEBodyGenUpdate::F4EEBodyGenUpdate(TESForm * form, bool doDetach)
-{
+F4EEBodyGenUpdate::F4EEBodyGenUpdate(TESForm* form, bool doDetach) {
 	m_formId = form ? form->formID : 0;
 	m_doDetach = doDetach;
 }
 
-void F4EEBodyGenUpdate::Run()
-{
-	TESForm * form = LookupFormByID(m_formId);
-	if(form) {
-		Actor * actor = DYNAMIC_CAST(form, TESForm, Actor);
-		if(actor) {
+void F4EEBodyGenUpdate::Run() {
+	TESForm* form = LookupFormByID(m_formId);
+	if (form == nullptr) {
+		return;
+	}
+
+	Actor* actor = DYNAMIC_CAST(form, TESForm, Actor);
+	if (actor == nullptr) {
+		return;
+	}
+
 #ifdef _DEBUG_MOPRHING
-				_MESSAGE("%s - Activating Update for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
+	_MESSAGE("%s - Activating Update for %s (%08X)", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
 #endif
-				// Detaching the node will cause the game to regenerate when UpdateEquipment is called
-				// We only need to detach armor, and armor that's even eligible for morphing
-				if(m_doDetach)
-				{
-					ActorEquipData * equipData[2];
-					equipData[0] = actor->equipData;
-					equipData[1] = actor == (*g_player) ? (*g_player)->playerEquipData : nullptr;
 
-					for(UInt32 s = 0; s < (actor == (*g_player) ? 2 : 1); s++)
-					{
-						if(equipData[s])
-						{
-							for(UInt32 i = 0; i < 32; ++i)
-							{
-								NiPointer<NiAVObject> slotNode(equipData[s]->slots[i].node);
-								if(slotNode && g_bodyMorphInterface.IsNodeMorphable(slotNode))
-								{
-									NiPointer<NiNode> parent(slotNode->m_parent);
-									if(parent) {
-										// Tear off any related overlays
-										if(g_bEnableOverlays) {
-											NiNode * rootNode = GetRootNode(actor, slotNode);
-											if(rootNode) {
-												NiNode * overlayRoot = g_overlayInterface.GetOverlayRoot(actor, rootNode);
-												if(overlayRoot)
-													g_overlayInterface.DestroyOverlaySlot(actor, overlayRoot, i);
-											}
-										}
+	// Detaching the node will cause the game to regenerate when UpdateEquipment is called
+	// We only need to detach armor, and armor that's even eligible for morphing
+	if (m_doDetach) {
+		ActorEquipData* equipData[2]{};
+		equipData[0] = actor->equipData;
+		equipData[1] = (actor == *g_player) ? (*g_player)->playerEquipData : nullptr;
 
-										parent->RemoveChild(slotNode);
-									}
-								}
-							}
-						}
+		for (UInt32 s = 0; s < (actor == (*g_player) ? 2 : 1); ++s) {
+			if (equipData[s] == nullptr) {
+				continue;
+			}
+
+			for (UInt32 i = 0; i < 32; ++i) {
+				NiPointer<NiAVObject> slotNode(equipData[s]->slots[i].node);
+				if (slotNode == nullptr || !g_bodyMorphInterface.IsNodeMorphable(slotNode)) {
+					continue;
+				}
+
+				NiPointer<NiNode> parent(slotNode->m_parent);
+				if (parent == nullptr) {
+					continue;
+				}
+
+				// Tear off any related overlays
+				if (g_bEnableOverlays) {
+					NiNode* rootNode = GetRootNode(actor, slotNode);
+					NiNode* overlayRoot = (rootNode != nullptr) ? g_overlayInterface.GetOverlayRoot(actor, rootNode) : nullptr;
+					if (overlayRoot != nullptr) {
+						g_overlayInterface.DestroyOverlaySlot(actor, overlayRoot, i);
 					}
 				}
 
-				auto middleProcess = actor->middleProcess;
-				if(middleProcess) 
-					CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
-#ifdef _DEBUG_MOPRHING
-				else
-					_MESSAGE("%s - Skipping Update for %s (%08X) no middle process", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
-#endif
+				parent->RemoveChild(slotNode);
+			}
 		}
 	}
+
+	auto* middleProcess = actor->middleProcess;
+	if (middleProcess != nullptr) {
+		CALL_MEMBER_FN(middleProcess, UpdateEquipment)(actor, 0x11);
+	}
+#ifdef _DEBUG_MOPRHING
+	else {
+		_MESSAGE("%s - Skipping Update for %s (%08X) no middle process", __FUNCTION__, CALL_MEMBER_FN(actor, GetReferenceName)(), actor->formID);
+	}
+#endif
 }
 
 #include "f4se/BSGraphics.h"
